@@ -144,4 +144,87 @@ This project is licensed under the MIT License - see the LICENSE file for detail
 - [MatAnyone](https://github.com/pq-yang/MatAnyone) for the segmentation model
 - [FastAPI](https://fastapi.tiangolo.com/) for the backend framework
 - [React](https://reactjs.org/) for the frontend framework
-- [OpenCV](https://opencv.org/) for computer vision algorithms 
+- [OpenCV](https://opencv.org/) for computer vision algorithms
+
+## Git Workflow
+
+### Setting Up the Repository
+
+The repository has been set up with MatAnyone as a Git submodule. Here's how it was done:
+
+```bash
+# Initialize the repository
+git init
+
+# Add all files
+git add .
+
+# Create initial commit
+git commit -m "Initial commit: VFX Editor with MatAnyone integration"
+
+# Add MatAnyone as a submodule
+git submodule add https://github.com/pq-yang/MatAnyone.git MatAnyone
+
+# Commit the submodule
+git commit -m "Add MatAnyone as a submodule"
+
+# Connect to GitHub
+git remote add origin https://github.com/domdolo777/vfx.git
+git branch -M main
+git push -u origin main
+```
+
+### Pushing Updates
+
+To push updates to the repository:
+
+```bash
+# Add your changes
+git add .
+
+# Commit your changes
+git commit -m "Description of your changes"
+
+# Push to GitHub
+git push origin main
+```
+
+### Cloning the Repository in a New Workspace
+
+To clone the repository with the MatAnyone submodule:
+
+```bash
+# Clone the repository
+git clone https://github.com/domdolo777/vfx.git
+
+# Navigate to the project directory
+cd vfx
+
+# Initialize and update the submodule
+git submodule init
+git submodule update
+```
+
+### Pulling Updates
+
+To pull updates from the repository:
+
+```bash
+# Pull the latest changes
+git pull origin main
+
+# Update the submodule
+git submodule update --remote
+```
+
+### Working with the MatAnyone Submodule
+
+The MatAnyone code is included as a Git submodule, which means it's a reference to a specific commit in the original MatAnyone repository. If you need to make changes to the MatAnyone code:
+
+1. Navigate to the MatAnyone directory: `cd MatAnyone`
+2. Make your changes
+3. Commit your changes: `git add . && git commit -m "Your changes"`
+4. Go back to the main repository: `cd ..`
+5. Update the reference to the submodule: `git add MatAnyone`
+6. Commit the update: `git commit -m "Update MatAnyone submodule"`
+7. Push your changes: `git push origin main` 
