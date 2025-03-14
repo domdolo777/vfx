@@ -1,0 +1,14 @@
+model:
+  backbone: vit_b
+  use_infer: true
+  hidden_dim: 256
+  dropout: 0.0
+  nheads: 8
+  dim_feedforward: 2048
+  enc_layers: 6
+  dec_layers: 6
+  temporal_layers: 3
+pixel_encoder:
+  name: vit_b
+  pretrained: true
+weights: /Users/dolo/vfx/MatAnyone/pretrained_models/matanyone.pth

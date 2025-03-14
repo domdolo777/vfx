@@ -1,0 +1,228 @@
+im going to send you my app idea. i originally wanted to use lynx to program it but i actually want to use react as well as mat anyone in combination. 
+
+here is the idea. please help me bring it to life 
+
+research matanyone if you need to to learn how to impliment properly , @https://github.com/pq-yang/MatAnyone  
+but you will also have the repo so you can find what you need to hwen you need to . 
+
+Video Editing Application: Detailed Feature Overview
+App Purpose
+This web-based video editing application allows users to:
+Upload a video.
+
+Segment multiple objects interactively using prompt points.
+
+Track segmented objects across all frames.
+
+Apply and customize visual effects to segmented regions.
+
+Export the results as mask videos or a fully effected video.
+The app operates in two distinct modes—Segmentation Mode and FX Mode—with a seamless workflow between them, providing an intuitive and powerful editing experience.
+Core Modes and Workflow
+The application features two primary modes:
+Segmentation Mode: For uploading videos, segmenting objects, tracking them, and managing segmented objects.
+
+FX Mode: For applying and customizing visual effects on segmented objects and exporting the final output.
+Users can switch between modes using dedicated buttons: "FX Mode" (from Segmentation Mode) and "Seg Mode" (from FX Mode).
+
+The video frame remains visible in both modes, with segmentations overlaid as applicable.
+1. Segmentation Mode
+1.1 Video Upload and Display
+Upload: Users upload a video file (e.g., MP4, MOV, AVI).
+
+Display: The video appears as a single frame in the UI.
+
+Controls (positioned below the video frame):
+Video Slider: Allows navigation between frames by dragging or clicking.
+
+Play Button: Plays the video from the current frame.
+
+Pause Button: Pauses playback at the current frame.
+1.2 Object Segmentation
+Point-Based Segmentation:
+Users click on the video frame to add prompt points (visible as dots) on objects to segment.
+
+Each prompt point triggers the generation of a segmentation mask for the clicked object.
+
+The mask appears only on the current frame, with no tracking until explicitly initiated.
+Mask Visualization:
+Each object’s mask has a distinct color to differentiate it from other objects.
+
+Masks update only on the current frame when points are added or when switching to a new frame (if no tracking has occurred).
+1.3 Object Management
+Add New Object:
+An "Add New Object" button creates a new object for segmentation.
+
+Each new object generates an object bar, displayed above the "Add New Object" button.
+Object Bar Features (per object):
+Mute Object: Temporarily hides the segmentation mask for that object (toggleable).
+
+Delete Object: Removes the object and its segmentation entirely.
+
+Clear Object: Clears the segmentation mask for that object without deleting the object itself.
+Object Selection:
+Users select an object by clicking its object bar.
+
+When adding prompt points, the resulting mask is associated with the currently selected object and uses its unique color.
+1.4 Tracking
+Track Objects:
+A "Track Objects" button initiates tracking for all segmented objects across the entire video.
+
+Tracking propagates masks from the current frame to all other frames.
+
+Once tracking is complete, masks are available and visible on all frames for all objects.
+1.5 Mode Switching
+Enter FX Mode:
+A "FX Mode" button transitions the UI to FX Mode.
+
+The video frame remains visible with all segmentations overlaid.
+
+The state of Segmentation Mode is preserved for returning later.
+2. FX Mode
+2.1 Object Selection for Effects
+Object Buttons:
+Each segmented object has a corresponding button.
+
+Clicking an object button selects that object, determining which segmentation the effects will be applied to.
+
+Effects applied to other objects remain visible in the frame, unaffected by the current selection.
+2.2 Global Parameters (Per Object)
+Purpose: These settings adjust the overall appearance of the selected object’s segmentation and its effects.
+
+Controls:
+Mask Opacity: A slider to adjust the opacity of the selected object’s segmentation mask (does not affect effect opacity).
+
+Feathering Controls:
+Sliders and input fields for radius, expand, and other relevant feathering parameters.
+
+Values can be positive or negative.
+
+Applies to both the segmentation mask and all effects applied to the object uniformly.
+FX Opacity: A slider to adjust the opacity of all effects applied to the selected object (distinct from mask opacity).
+
+Invert FX: A checkbox to apply effects outside the segmentation mask instead of inside.
+2.3 FX Stack
+Select and Apply Effects:
+A "Select Effect" dropdown lists available effects (initially: Blur, Black and White, Chromatic Aberration, Glow).
+
+Clicking an effect and pressing "Apply Effect" adds it to the FX stack for the selected object.
+Effect Blocks:
+Each applied effect appears as a modular effect block in the FX stack.
+
+Features per block:
+Effect name displayed at the top.
+
+Sliders, knobs, and input fields for effect-specific parameters (customized per effect).
+
+Real-time updates: Adjusting parameters instantly updates the effect on the current frame.
+Stacking and Ordering:
+Effects are applied in the order they appear in the stack.
+
+Users can drag blocks to rearrange the order or press "X" to delete a block.
+Effect-Specific Feathering:
+Each effect block includes:
+Knobs for radius, expand, and opacity (positive/negative values, with keyboard input support).
+
+Invert Mask checkbox.
+
+These controls affect only the specific effect, independent of global feathering settings.
+2.4 Presets
+Save Preset:
+A "Save Preset" button saves the current FX stack (effect blocks, order, and parameter settings) as a preset for the selected object.
+Load Preset:
+A "Load Preset" button displays a list of saved presets.
+
+Selecting a preset and pressing "Apply" loads its effect blocks and settings into the FX stack, overwriting the current stack.
+2.5 Importing Effects
+Import Effect:
+A button or interface allows users to load new effects easily (e.g., by pasting effect code or dragging files).
+
+Imported effects are added to the "Select Effect" dropdown for future use.
+2.6 Rendering and Exporting
+Render Effects:
+A "Render Effects" button applies all effects and settings to all frames for seamless playback.
+
+Without rendering, effects apply only to the current frame.
+Export Options:
+Export Mask Video:
+Exports one MP4 video per object, showing the raw segmentation mask (white mask on black background).
+
+No feathering is applied; only the original segmentation is exported.
+
+Matches the uploaded video’s frame rate, resolution, and dimensions.
+
+Users can choose the save path.
+Export FX Video:
+Exports a single MP4 video with all effects applied to all objects, without visible masks.
+
+Includes all feathering and parameter settings as displayed.
+
+Matches the uploaded video’s frame rate, resolution, and dimensions.
+
+If unrendered, rendering occurs automatically before export.
+
+Users can choose the save path.
+2.7 Mode Switching
+Return to Segmentation Mode:
+A "Seg Mode" button switches back to Segmentation Mode, restoring the previous state (video frame, segmentations, and settings intact).
+3. Additional Features
+Reset All:
+A "Reset All" button clears all masks, effects, and settings.
+
+Returns the app to Segmentation Mode with a clean slate.
+
+Unloads any applied effects or segmentations to free up resources.
+4. User Interface Layout
+Segmentation Mode:
+Video frame (clickable for prompt points) in the center.
+
+Object bars stacked above the "Add New Object" button.
+
+Below the video frame: Video slider, Play, and Pause buttons.
+
+Additional buttons: "Track Objects" and "FX Mode".
+FX Mode:
+Video frame (with segmentations overlaid) in the same position.
+
+Object selection buttons (one per object).
+
+Global Parameters section with sliders and inputs.
+
+FX Stack section with effect blocks and controls.
+
+Buttons: "Save Preset", "Load Preset", "Import Effect", "Render Effects", "Export Mask Video", "Export FX Video", and "Seg Mode".
+5. Feature Specifications
+Real-Time Updates:
+In Segmentation Mode, masks update only on the current frame until tracking is initiated.
+
+In FX Mode, effect parameter changes (global or per effect) update only the current frame until "Render Effects" is pressed.
+Effect Persistence:
+Effects applied to one object remain visible when switching to another object; only the selected object’s effects are editable.
+Initial Effects:
+Blur
+
+Black and White
+
+Chromatic Aberration
+
+Glow
+MatAnyone API Integration:
+Used for segmentation and tracking.
+
+Relies on client-side JavaScript library (per GitHub repo: https://github.com/pq-yang/MatAnyone).
+
+Users provide prompt points to generate first-frame masks, which are tracked across the video.
+6. Development Prioritization (Response to Query)
+Recommended Focus:
+Phase 1: Prioritize Video Upload, Object Segmentation, Tracking, and Exporting (Mask Videos).
+Build a functional Segmentation Mode with video display, prompt points, mask generation, object management, tracking, and mask video export.
+
+Ensure the core workflow (upload > segment > track > export) works seamlessly first.
+Phase 2: Expand to FX Mode and Effects.
+Add the FX Mode UI, object selection, global parameters, FX stack, rendering, and full video export with effects.
+
+Integrate initial effects (Blur, Black and White, Chromatic Aberration, Glow) and preset/import functionality.
+Rationale:
+Establishing a robust segmentation and tracking foundation ensures the app’s core functionality is reliable before adding effects complexity.
+
+The UI layout (video frame, slider, buttons) can be designed to support both modes from the start, allowing a smooth transition to FX Mode later.
