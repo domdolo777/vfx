@@ -198,9 +198,19 @@ const FXMode = () => {
   // Draw the current frame on the canvas
   useEffect(() => {
     if (frames.length > 0 && currentFrameIndex < frames.length) {
+      const frameUrl = frames[currentFrameIndex].url;
+      const fullUrl = frameUrl.startsWith('http') 
+        ? frameUrl 
+        : `${config.apiUrl}${frameUrl}`;
+      
+      console.log('Loading frame', currentFrameIndex, 'from', fullUrl);
+      
       const img = new Image();
-      img.src = `${config.apiUrl}${frames[currentFrameIndex].url}`;
+      img.crossOrigin = "anonymous"; // Add cross-origin attribute
+      img.src = fullUrl;
+      
       img.onload = () => {
+        console.log('Frame loaded successfully:', fullUrl);
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext('2d');
@@ -211,9 +221,19 @@ const FXMode = () => {
           // Draw masks and effects for the current frame
           objects.forEach((object, index) => {
             if (object.visible && object.masks && object.masks[currentFrameIndex]) {
+              const maskUrl = object.masks[currentFrameIndex];
+              const fullMaskUrl = maskUrl.startsWith('http') 
+                ? maskUrl 
+                : `${config.apiUrl}${maskUrl}`;
+              
+              console.log('Loading mask for object', index, 'from', fullMaskUrl);
+              
               const maskImg = new Image();
-              maskImg.src = `${config.apiUrl}${object.masks[currentFrameIndex]}`;
+              maskImg.crossOrigin = "anonymous"; // Add cross-origin attribute
+              maskImg.src = fullMaskUrl;
+              
               maskImg.onload = () => {
+                console.log('Mask loaded successfully:', fullMaskUrl);
                 // Apply the effect to the masked area
                 ctx.save();
                 ctx.globalAlpha = globalParams.maskOpacity / 100;
@@ -224,13 +244,27 @@ const FXMode = () => {
                 if (object.effects) {
                   Object.entries(object.effects).forEach(([effectType, effectFrames]) => {
                     if (effectFrames[currentFrameIndex]) {
+                      const effectUrl = effectFrames[currentFrameIndex];
+                      const fullEffectUrl = effectUrl.startsWith('http') 
+                        ? effectUrl 
+                        : `${config.apiUrl}${effectUrl}`;
+                      
+                      console.log('Loading effect', effectType, 'from', fullEffectUrl);
+                      
                       const effectImg = new Image();
-                      effectImg.src = `${config.apiUrl}${effectFrames[currentFrameIndex]}`;
+                      effectImg.crossOrigin = "anonymous"; // Add cross-origin attribute
+                      effectImg.src = fullEffectUrl;
+                      
                       effectImg.onload = () => {
+                        console.log('Effect loaded successfully:', fullEffectUrl);
                         ctx.save();
                         ctx.globalAlpha = globalParams.fxOpacity / 100;
                         ctx.drawImage(effectImg, 0, 0);
                         ctx.restore();
+                      };
+                      
+                      effectImg.onerror = (err) => {
+                        console.error('Error loading effect:', fullEffectUrl, err);
                       };
                     }
                   });
@@ -246,9 +280,18 @@ const FXMode = () => {
                   ctx.restore();
                 }
               };
+              
+              maskImg.onerror = (err) => {
+                console.error('Error loading mask:', fullMaskUrl, err);
+              };
             }
           });
         }
+      };
+      
+      img.onerror = (err) => {
+        console.error('Error loading frame:', fullUrl, err);
+        setError(`Failed to load frame: ${fullUrl}`);
       };
     }
   }, [frames, currentFrameIndex, objects, selectedObjectIndex, globalParams]);

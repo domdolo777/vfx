@@ -111,9 +111,19 @@ const SegmentationMode = () => {
     
     objects.forEach((object, index) => {
       if (object.visible && object.masks && object.masks[currentFrameIndex]) {
+        const maskUrl = object.masks[currentFrameIndex];
+        const fullMaskUrl = maskUrl.startsWith('http') 
+          ? maskUrl 
+          : `${config.apiUrl}${maskUrl}`;
+        
+        console.log('Loading mask for object', index, 'from', fullMaskUrl);
+        
         const maskImg = new Image();
-        maskImg.src = `${config.apiUrl}${object.masks[currentFrameIndex]}`;
+        maskImg.crossOrigin = "anonymous"; // Add cross-origin attribute
+        maskImg.src = fullMaskUrl;
+        
         maskImg.onload = () => {
+          console.log('Mask loaded successfully:', fullMaskUrl);
           // Apply a semi-transparent colored overlay for the mask
           ctx.save();
           ctx.globalAlpha = 0.5;
@@ -134,6 +144,10 @@ const SegmentationMode = () => {
             ctx.restore();
           }
         };
+        
+        maskImg.onerror = (err) => {
+          console.error('Error loading mask:', fullMaskUrl, err);
+        };
       }
     });
   }, [objects, currentFrameIndex, selectedObjectIndex]);
@@ -141,10 +155,20 @@ const SegmentationMode = () => {
   // Draw the current frame on the canvas
   useEffect(() => {
     if (frames.length > 0 && currentFrameIndex < frames.length) {
-      console.log('Loading frame', currentFrameIndex, 'from', frames[currentFrameIndex].url);
+      const frameUrl = frames[currentFrameIndex].url;
+      const fullUrl = frameUrl.startsWith('http') 
+        ? frameUrl 
+        : `${config.apiUrl}${frameUrl}`;
+      
+      console.log('Loading frame', currentFrameIndex, 'from', frameUrl);
+      console.log('Full URL:', fullUrl);
+      
       const img = new Image();
-      img.src = `${config.apiUrl}${frames[currentFrameIndex].url}`;
+      img.crossOrigin = "anonymous"; // Add cross-origin attribute
+      img.src = fullUrl;
+      
       img.onload = () => {
+        console.log('Frame loaded successfully:', fullUrl);
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext('2d');
@@ -162,8 +186,8 @@ const SegmentationMode = () => {
         }
       };
       img.onerror = (err) => {
-        console.error('Error loading frame:', err);
-        setError('Failed to load frame');
+        console.error('Error loading frame:', fullUrl, err);
+        setError(`Failed to load frame: ${fullUrl}`);
       };
     }
   }, [frames, currentFrameIndex, points, objects, selectedObjectIndex, labels, drawPoints, drawMasks]);
