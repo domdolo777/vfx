@@ -183,7 +183,7 @@ const FXMode = () => {
     };
   }, [isPlaying, frames.length]);
 
-  // Load current frame image and effects
+  // Draw the current frame on the canvas
   useEffect(() => {
     if (frames.length > 0 && currentFrameIndex < frames.length) {
       const img = new Image();
@@ -196,20 +196,42 @@ const FXMode = () => {
           canvas.height = img.height;
           ctx.drawImage(img, 0, 0);
           
-          // Apply effects to objects
-          objects.forEach((object) => {
+          // Draw masks and effects for the current frame
+          objects.forEach((object, index) => {
             if (object.visible && object.masks && object.masks[currentFrameIndex]) {
               const maskImg = new Image();
               maskImg.src = `${config.apiUrl}${object.masks[currentFrameIndex]}`;
               maskImg.onload = () => {
                 // Apply the effect to the masked area
-                if (object.effect) {
-                  applyEffect(ctx, maskImg, object.effect, object.effectParams);
-                } else {
-                  // Just show the mask if no effect is applied
-                  ctx.globalAlpha = 0.5;
-                  ctx.drawImage(maskImg, 0, 0);
-                  ctx.globalAlpha = 1.0;
+                ctx.save();
+                ctx.globalAlpha = globalParams.maskOpacity / 100;
+                ctx.drawImage(maskImg, 0, 0);
+                ctx.restore();
+                
+                // If this object has effects, draw them
+                if (object.effects) {
+                  Object.entries(object.effects).forEach(([effectType, effectFrames]) => {
+                    if (effectFrames[currentFrameIndex]) {
+                      const effectImg = new Image();
+                      effectImg.src = `${config.apiUrl}${effectFrames[currentFrameIndex]}`;
+                      effectImg.onload = () => {
+                        ctx.save();
+                        ctx.globalAlpha = globalParams.fxOpacity / 100;
+                        ctx.drawImage(effectImg, 0, 0);
+                        ctx.restore();
+                      };
+                    }
+                  });
+                }
+                
+                // Highlight the selected object
+                if (selectedObjectIndex === index) {
+                  ctx.save();
+                  ctx.strokeStyle = objectColors[index % objectColors.length];
+                  ctx.lineWidth = 3;
+                  ctx.globalAlpha = 0.8;
+                  ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+                  ctx.restore();
                 }
               };
             }
@@ -217,7 +239,7 @@ const FXMode = () => {
         }
       };
     }
-  }, [frames, currentFrameIndex, objects]);
+  }, [frames, currentFrameIndex, objects, selectedObjectIndex, globalParams]);
 
   // Load objects from segmentation mode
   useEffect(() => {

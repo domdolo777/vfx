@@ -82,123 +82,79 @@ const SegmentationMode = () => {
     };
   }, [isPlaying, frames.length]);
 
-  // Load current frame image and masks
+  // Draw the current frame on the canvas
   useEffect(() => {
     if (frames.length > 0 && currentFrameIndex < frames.length) {
-      console.log(`Loading frame ${currentFrameIndex} from ${frames[currentFrameIndex].url}`);
+      console.log('Loading frame', currentFrameIndex, 'from', frames[currentFrameIndex].url);
       const img = new Image();
-      img.src = `http://localhost:8000${frames[currentFrameIndex].url}`;
+      img.src = `${config.apiUrl}${frames[currentFrameIndex].url}`;
       img.onload = () => {
         const canvas = canvasRef.current;
         if (canvas) {
           const ctx = canvas.getContext('2d');
+          // Set canvas dimensions to match the image
           canvas.width = img.width;
           canvas.height = img.height;
+          // Draw the image
           ctx.drawImage(img, 0, 0);
-          console.log(`Frame drawn to canvas: ${img.width}x${img.height}`);
           
           // Draw points
-          points.forEach((point, index) => {
-            const label = labels[index];
-            ctx.beginPath();
-            ctx.arc(point[0], point[1], 5, 0, 2 * Math.PI);
-            ctx.fillStyle = label === 1 ? 'green' : 'red';
-            ctx.fill();
-          });
+          drawPoints(ctx);
           
-          // Draw masks for objects
-          console.log(`Objects to draw masks for:`, objects);
-          const maskPromises = [];
-          objects.forEach((object, index) => {
-            console.log(`Checking object ${index}:`, object);
-            console.log(`Object masks:`, object.masks);
-            console.log(`Current frame index:`, currentFrameIndex);
-            console.log(`Has mask for current frame:`, object.masks && object.masks[currentFrameIndex]);
-            
-            if (object.visible && object.masks && object.masks[currentFrameIndex]) {
-              const maskImg = new Image();
-              const maskUrl = `http://localhost:8000${object.masks[currentFrameIndex]}`;
-              console.log(`Loading mask from: ${maskUrl}`);
-              maskImg.crossOrigin = "Anonymous"; // Try with crossOrigin
-              maskImg.src = maskUrl;
-              
-              const promise = new Promise((resolve) => {
-                maskImg.onload = () => {
-                  console.log(`Mask loaded successfully from: ${maskUrl}, size: ${maskImg.width}x${maskImg.height}`);
-                  
-                  // Create a temporary canvas to process the mask
-                  const tempCanvas = document.createElement('canvas');
-                  tempCanvas.width = maskImg.width;
-                  tempCanvas.height = maskImg.height;
-                  const tempCtx = tempCanvas.getContext('2d');
-                  
-                  // Draw the mask to the temporary canvas
-                  tempCtx.drawImage(maskImg, 0, 0);
-                  
-                  // Get the mask data
-                  const maskData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
-                  const maskPixels = maskData.data;
-                  
-                  // Create a colored overlay based on the mask
-                  const overlay = ctx.createImageData(canvas.width, canvas.height);
-                  const overlayPixels = overlay.data;
-                  
-                  // Set a semi-transparent color for the mask (red with 50% opacity)
-                  for (let i = 0; i < maskPixels.length; i += 4) {
-                    if (maskPixels[i] > 0) { // If the mask pixel is not black
-                      overlayPixels[i] = 255;     // R
-                      overlayPixels[i + 1] = 0;   // G
-                      overlayPixels[i + 2] = 0;   // B
-                      overlayPixels[i + 3] = 128; // A (50% opacity)
-                    }
-                  }
-                  
-                  // Draw the colored overlay
-                  ctx.putImageData(overlay, 0, 0);
-                  console.log(`Colored mask overlay drawn to canvas`);
-                  
-                  // Add a debug rectangle to verify drawing is working
-                  ctx.strokeStyle = 'blue';
-                  ctx.lineWidth = 3;
-                  ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
-                  
-                  ctx.globalAlpha = 1.0;
-                  resolve();
-                };
-                maskImg.onerror = (error) => {
-                  console.error(`Error loading mask from: ${maskUrl}`, error);
-                  // Try to fetch the image directly to see if it exists
-                  fetch(maskUrl)
-                    .then(response => {
-                      if (!response.ok) {
-                        console.error(`Mask image not found: ${response.status} ${response.statusText}`);
-                      } else {
-                        console.log(`Mask image exists but couldn't be loaded as an image`);
-                        return response.blob();
-                      }
-                    })
-                    .then(blob => {
-                      if (blob) {
-                        console.log(`Mask blob type: ${blob.type}, size: ${blob.size}`);
-                      }
-                    })
-                    .catch(err => console.error(`Network error fetching mask: ${err}`));
-                  resolve();
-                };
-              });
-              
-              maskPromises.push(promise);
-            }
-          });
-          
-          // Wait for all masks to load
-          Promise.all(maskPromises).then(() => {
-            console.log('All masks loaded and drawn');
-          });
+          // Draw masks for the current frame
+          drawMasks(ctx);
         }
       };
+      img.onerror = (err) => {
+        console.error('Error loading frame:', err);
+        setError('Failed to load frame');
+      };
     }
-  }, [frames, currentFrameIndex, points, labels, objects]);
+  }, [frames, currentFrameIndex, points, objects, selectedObjectIndex]);
+
+  // Function to draw the points on the canvas
+  const drawPoints = (ctx) => {
+    points.forEach((point, index) => {
+      const label = labels[index];
+      ctx.beginPath();
+      ctx.arc(point[0], point[1], 5, 0, 2 * Math.PI);
+      ctx.fillStyle = label === 1 ? 'green' : 'red';
+      ctx.fill();
+    });
+  };
+
+  // Function to draw the masks for the current frame
+  const drawMasks = (ctx) => {
+    if (!objects || objects.length === 0) return;
+    
+    objects.forEach((object, index) => {
+      if (object.visible && object.masks && object.masks[currentFrameIndex]) {
+        const maskImg = new Image();
+        maskImg.src = `${config.apiUrl}${object.masks[currentFrameIndex]}`;
+        maskImg.onload = () => {
+          // Apply a semi-transparent colored overlay for the mask
+          ctx.save();
+          ctx.globalAlpha = 0.5;
+          ctx.drawImage(maskImg, 0, 0);
+          ctx.restore();
+          
+          // Highlight the selected object
+          if (selectedObjectIndex === index) {
+            ctx.save();
+            ctx.strokeStyle = objectColors[index % objectColors.length];
+            ctx.lineWidth = 3;
+            ctx.globalAlpha = 0.8;
+            ctx.beginPath();
+            // Draw outline around the mask (simplified)
+            // In a real application, you would trace the actual contour of the mask
+            ctx.rect(0, 0, maskImg.width, maskImg.height);
+            ctx.stroke();
+            ctx.restore();
+          }
+        };
+      }
+    });
+  };
 
   const handleCanvasClick = (e) => {
     if (selectedObjectIndex === null) {
