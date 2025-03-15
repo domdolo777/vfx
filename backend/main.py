@@ -765,8 +765,8 @@ async def list_masks(video_id: str, req: Request = None):
     tracks_dir = os.path.join("uploads", video_id, "tracks")
     
     # Check if directories exist
-    if not os.path.exists(masks_dir):
-        print(f"Mask directory not found: {masks_dir}")
+    if not os.path.exists(masks_dir) and not os.path.exists(tracks_dir):
+        print(f"Neither mask directory found: {masks_dir} or {tracks_dir}")
         raise HTTPException(status_code=404, detail="Video or masks not found")
     
     # Get base URL for static files
@@ -777,11 +777,14 @@ async def list_masks(video_id: str, req: Request = None):
     mask_files = []
     if os.path.exists(masks_dir):
         mask_files.extend([os.path.join("masks", f) for f in os.listdir(masks_dir) if f.endswith(".png")])
+        print(f"Found {len(mask_files)} mask files in masks directory")
     
     if os.path.exists(tracks_dir):
-        mask_files.extend([os.path.join("tracks", f) for f in os.listdir(tracks_dir) if f.endswith(".png")])
+        track_files = [os.path.join("tracks", f) for f in os.listdir(tracks_dir) if f.endswith(".png")]
+        mask_files.extend(track_files)
+        print(f"Found {len(track_files)} mask files in tracks directory")
     
-    print(f"Found {len(mask_files)} mask files")
+    print(f"Found {len(mask_files)} total mask files")
     
     # Group by object ID
     objects = {}
@@ -792,8 +795,11 @@ async def list_masks(video_id: str, req: Request = None):
             mask_dir = os.path.dirname(mask_file_path)
             
             # Extract object ID and frame index using regex
-            # Support both formats: obj_XXXXX_00000.png and obj_XXXXX_n_00000.png
-            match = re.match(r'(obj_[a-zA-Z0-9_]+)(?:_n)?_(\d+)\.png', mask_file)
+            # Support multiple formats:
+            # 1. obj_XXXXX_00000.png
+            # 2. obj_XXXXX_n_00000.png
+            # 3. obj_XXXXX-00000.png
+            match = re.search(r'(obj_[a-zA-Z0-9_]+)(?:_n)?[_-](\d+)\.png', mask_file)
             
             if match:
                 object_id = match.group(1)  # obj_XXXXX
@@ -933,6 +939,90 @@ async def debug_mask_directory(video_id: str):
             "total_files": len(all_files),
             "mask_files": len(mask_files),
             "samples": mask_stats
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "exists": True
+        }
+
+@app.get("/debug/mask-file/{video_id}/{mask_file}")
+async def debug_mask_file(video_id: str, mask_file: str):
+    """Debug endpoint to examine a specific mask file"""
+    masks_dir = os.path.join("uploads", video_id, "masks")
+    mask_path = os.path.join(masks_dir, mask_file)
+    
+    if not os.path.exists(mask_path):
+        # Try looking in the tracks directory
+        tracks_dir = os.path.join("uploads", video_id, "tracks")
+        mask_path = os.path.join(tracks_dir, mask_file)
+        if not os.path.exists(mask_path):
+            return {
+                "status": "error",
+                "message": f"Mask file not found: {mask_file}",
+                "exists": False
+            }
+    
+    try:
+        # Get basic file info
+        stats = os.stat(mask_path)
+        size = stats.st_size
+        
+        # Try to read the mask as an image
+        mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+        if mask is None:
+            return {
+                "status": "error",
+                "message": "Failed to read mask file as image",
+                "exists": True,
+                "size_bytes": size
+            }
+        
+        # Get detailed mask info
+        shape = mask.shape
+        dtype = str(mask.dtype)
+        min_val = int(mask.min())
+        max_val = int(mask.max())
+        
+        # Count non-zero pixels
+        non_zero = np.count_nonzero(mask)
+        total_pixels = mask.size
+        
+        # Get histogram data
+        if len(mask.shape) == 2:  # Grayscale
+            hist = cv2.calcHist([mask], [0], None, [256], [0, 256])
+            hist_data = hist.flatten().tolist()
+        else:  # Color image
+            hist_data = []
+            for i in range(mask.shape[2]):
+                hist = cv2.calcHist([mask], [i], None, [256], [0, 256])
+                hist_data.append(hist.flatten().tolist())
+        
+        # Save a debug version of the mask with enhanced contrast
+        debug_mask = mask.copy()
+        if len(mask.shape) == 2:  # Grayscale
+            # Normalize to full range for better visibility
+            if max_val > min_val:
+                debug_mask = ((mask - min_val) / (max_val - min_val) * 255).astype(np.uint8)
+        
+        debug_mask_path = os.path.join("uploads", video_id, "debug_" + mask_file)
+        cv2.imwrite(debug_mask_path, debug_mask)
+        
+        return {
+            "status": "ok",
+            "exists": True,
+            "file_path": mask_path,
+            "size_bytes": size,
+            "shape": shape,
+            "dtype": dtype,
+            "min_value": min_val,
+            "max_value": max_val,
+            "non_zero_pixels": int(non_zero),
+            "total_pixels": int(total_pixels),
+            "percent_filled": round(non_zero / total_pixels * 100, 2) if total_pixels > 0 else 0,
+            "histogram": hist_data,
+            "debug_mask_url": f"/uploads/{video_id}/debug_{mask_file}"
         }
     except Exception as e:
         return {

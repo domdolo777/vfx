@@ -269,7 +269,8 @@ const FXMode = () => {
                   
                   // Apply the color to the mask with the global opacity setting
                   for (let i = 0; i < maskData.data.length; i += 4) {
-                    if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || maskData.data[i+2] > 0) {
+                    // Check if ANY channel has a value (not just the first one)
+                    if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
                       coloredMaskData.data[i] = r;     // R
                       coloredMaskData.data[i + 1] = g; // G
                       coloredMaskData.data[i + 2] = b; // B
