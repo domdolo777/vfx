@@ -1,4 +1,4 @@
-import React, { useState, useEffect, useRef } from 'react';
+import React, { useState, useEffect, useRef, useCallback } from 'react';
 import { useParams, useNavigate } from 'react-router-dom';
 import {
   Box,
@@ -24,6 +24,18 @@ import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import MovieFilterIcon from '@mui/icons-material/MovieFilter';
 import axios from 'axios';
 import config from '../config';
+
+// Define colors for object highlighting
+const objectColors = [
+  '#FF5252', // Red
+  '#4CAF50', // Green
+  '#2196F3', // Blue
+  '#FFC107', // Amber
+  '#9C27B0', // Purple
+  '#00BCD4', // Cyan
+  '#FF9800', // Orange
+  '#795548'  // Brown
+];
 
 const SegmentationMode = () => {
   const { videoId } = useParams();
@@ -82,38 +94,8 @@ const SegmentationMode = () => {
     };
   }, [isPlaying, frames.length]);
 
-  // Draw the current frame on the canvas
-  useEffect(() => {
-    if (frames.length > 0 && currentFrameIndex < frames.length) {
-      console.log('Loading frame', currentFrameIndex, 'from', frames[currentFrameIndex].url);
-      const img = new Image();
-      img.src = `${config.apiUrl}${frames[currentFrameIndex].url}`;
-      img.onload = () => {
-        const canvas = canvasRef.current;
-        if (canvas) {
-          const ctx = canvas.getContext('2d');
-          // Set canvas dimensions to match the image
-          canvas.width = img.width;
-          canvas.height = img.height;
-          // Draw the image
-          ctx.drawImage(img, 0, 0);
-          
-          // Draw points
-          drawPoints(ctx);
-          
-          // Draw masks for the current frame
-          drawMasks(ctx);
-        }
-      };
-      img.onerror = (err) => {
-        console.error('Error loading frame:', err);
-        setError('Failed to load frame');
-      };
-    }
-  }, [frames, currentFrameIndex, points, objects, selectedObjectIndex]);
-
-  // Function to draw the points on the canvas
-  const drawPoints = (ctx) => {
+  // Function to draw the points on the canvas - wrapped in useCallback
+  const drawPoints = useCallback((ctx) => {
     points.forEach((point, index) => {
       const label = labels[index];
       ctx.beginPath();
@@ -121,10 +103,10 @@ const SegmentationMode = () => {
       ctx.fillStyle = label === 1 ? 'green' : 'red';
       ctx.fill();
     });
-  };
+  }, [points, labels]);
 
-  // Function to draw the masks for the current frame
-  const drawMasks = (ctx) => {
+  // Function to draw the masks for the current frame - wrapped in useCallback
+  const drawMasks = useCallback((ctx) => {
     if (!objects || objects.length === 0) return;
     
     objects.forEach((object, index) => {
@@ -154,7 +136,37 @@ const SegmentationMode = () => {
         };
       }
     });
-  };
+  }, [objects, currentFrameIndex, selectedObjectIndex]);
+
+  // Draw the current frame on the canvas
+  useEffect(() => {
+    if (frames.length > 0 && currentFrameIndex < frames.length) {
+      console.log('Loading frame', currentFrameIndex, 'from', frames[currentFrameIndex].url);
+      const img = new Image();
+      img.src = `${config.apiUrl}${frames[currentFrameIndex].url}`;
+      img.onload = () => {
+        const canvas = canvasRef.current;
+        if (canvas) {
+          const ctx = canvas.getContext('2d');
+          // Set canvas dimensions to match the image
+          canvas.width = img.width;
+          canvas.height = img.height;
+          // Draw the image
+          ctx.drawImage(img, 0, 0);
+          
+          // Draw points
+          drawPoints(ctx);
+          
+          // Draw masks for the current frame
+          drawMasks(ctx);
+        }
+      };
+      img.onerror = (err) => {
+        console.error('Error loading frame:', err);
+        setError('Failed to load frame');
+      };
+    }
+  }, [frames, currentFrameIndex, points, objects, selectedObjectIndex, labels, drawPoints, drawMasks]);
 
   const handleCanvasClick = (e) => {
     if (selectedObjectIndex === null) {

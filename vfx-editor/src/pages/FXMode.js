@@ -33,6 +33,18 @@ import SegmentIcon from '@mui/icons-material/Segment';
 import axios from 'axios';
 import config from '../config';
 
+// Define colors for object highlighting
+const objectColors = [
+  '#FF5252', // Red
+  '#4CAF50', // Green
+  '#2196F3', // Blue
+  '#FFC107', // Amber
+  '#9C27B0', // Purple
+  '#00BCD4', // Cyan
+  '#FF9800', // Orange
+  '#795548'  // Brown
+];
+
 const EFFECT_TYPES = [
   { id: 'blur', name: 'Blur', params: { amount: { default: 15, min: 1, max: 50, step: 1 } } },
   { id: 'bw', name: 'Black & White', params: {} },
