@@ -2,7 +2,7 @@ import os
 import shutil
 import tempfile
 from typing import List
-from fastapi import FastAPI, UploadFile, File, Form, HTTPException
+from fastapi import FastAPI, UploadFile, File, Form, HTTPException, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import FileResponse
 from fastapi.staticfiles import StaticFiles
@@ -49,6 +49,13 @@ class EffectRequest(BaseModel):
     object_id: str
     effect_type: str
     effect_params: dict
+
+# Helper function to get the base URL for static files
+def get_base_url(request: Request) -> str:
+    """Get the base URL for static files based on the request"""
+    host = request.headers.get("host", "localhost:8000")
+    scheme = request.headers.get("x-forwarded-proto", "http")
+    return f"{scheme}://{host}"
 
 @app.get("/")
 async def root():
@@ -126,7 +133,7 @@ async def upload_video(file: UploadFile = File(...)):
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
 @app.get("/video-frames/{video_id}")
-async def get_video_frames(video_id: str, start: int = 0, count: int = 10):
+async def get_video_frames(video_id: str, start: int = 0, count: int = 10, request: Request = None):
     """Get frames from a video"""
     frames_dir = os.path.join("uploads", video_id, "frames")
     
@@ -139,13 +146,16 @@ async def get_video_frames(video_id: str, start: int = 0, count: int = 10):
     end = min(start + count, len(frame_files))
     frame_files = frame_files[start:end]
     
+    # Get the base URL for static files
+    base_url = get_base_url(request)
+    
     frames = []
     for frame_file in frame_files:
         frame_path = os.path.join(frames_dir, frame_file)
-        # Return a relative URL path that will be handled by the frontend
+        # Return a fully qualified URL with domain
         frames.append({
             "frame_index": int(frame_file.split("_")[1].split(".")[0]),
-            "url": f"/uploads/{video_id}/frames/{frame_file}"
+            "url": f"{base_url}/uploads/{video_id}/frames/{frame_file}"
         })
     
     return {
@@ -155,7 +165,7 @@ async def get_video_frames(video_id: str, start: int = 0, count: int = 10):
     }
 
 @app.post("/segment")
-async def segment_object(request: SegmentationRequest):
+async def segment_object(request: SegmentationRequest, req: Request = None):
     """Segment an object in a video frame using MatAnyone"""
     video_dir = os.path.join("uploads", request.video_id)
     if not os.path.exists(video_dir):
@@ -172,6 +182,9 @@ async def segment_object(request: SegmentationRequest):
     frame_path = os.path.join(video_dir, "frames", f"frame_{request.frame_index:05d}.jpg")
     frame = cv2.imread(frame_path)
     
+    # Get the base URL for static files
+    base_url = get_base_url(req)
+    
     try:
         # Use MatAnyone to generate a mask based on the points
         mask = matanyone_wrapper.segment_frame(frame, request.points, request.labels)
@@ -183,8 +196,8 @@ async def segment_object(request: SegmentationRequest):
         mask_path = os.path.join(masks_dir, f"{object_id}_{request.frame_index:05d}.png")
         cv2.imwrite(mask_path, mask)
         
-        # Construct the mask URL - use a relative path that will be handled by the frontend
-        mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{request.frame_index:05d}.png"
+        # Construct the mask URL - use a fully qualified URL with domain
+        mask_url = f"{base_url}/uploads/{request.video_id}/masks/{object_id}_{request.frame_index:05d}.png"
         
         print(f"Mask saved to {mask_path}")
         print(f"Mask URL: {mask_url}")
@@ -224,8 +237,8 @@ async def segment_object(request: SegmentationRequest):
         mask_path = os.path.join(masks_dir, f"{object_id}_{request.frame_index:05d}.png")
         cv2.imwrite(mask_path, mask)
         
-        # Use a relative URL that will be handled by the frontend
-        mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{request.frame_index:05d}.png"
+        # Use a fully qualified URL with domain
+        mask_url = f"{base_url}/uploads/{request.video_id}/masks/{object_id}_{request.frame_index:05d}.png"
         print(f"Fallback mask saved to {mask_path}")
         print(f"Fallback mask URL: {mask_url}")
         print(f"Fallback mask shape: {mask.shape}, dtype: {mask.dtype}")
@@ -240,7 +253,7 @@ async def segment_object(request: SegmentationRequest):
         }
 
 @app.post("/track")
-async def track_objects(request: TrackingRequest):
+async def track_objects(request: TrackingRequest, req: Request = None):
     """Track objects across all frames using MatAnyone"""
     video_dir = os.path.join("uploads", request.video_id)
     if not os.path.exists(video_dir):
@@ -253,6 +266,9 @@ async def track_objects(request: TrackingRequest):
     # Create a directory for tracked masks
     masks_dir = os.path.join(video_dir, "masks")
     os.makedirs(masks_dir, exist_ok=True)
+    
+    # Get the base URL for static files
+    base_url = get_base_url(req)
     
     # Load all frames
     frames = []
@@ -292,8 +308,8 @@ async def track_objects(request: TrackingRequest):
                 mask_path = os.path.join(masks_dir, f"{object_id}_{frame_idx:05d}.png")
                 cv2.imwrite(mask_path, binary_mask)
                 
-                # Use a relative URL that will be handled by the frontend
-                mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{frame_idx:05d}.png"
+                # Use a fully qualified URL with domain
+                mask_url = f"{base_url}/uploads/{request.video_id}/masks/{object_id}_{frame_idx:05d}.png"
                 
                 tracks.append({
                     "frame_index": frame_idx,
@@ -318,7 +334,7 @@ async def track_objects(request: TrackingRequest):
                     # Add the initial mask
                     tracks.append({
                         "frame_index": initial_frame_index,
-                        "mask_url": f"/uploads/{request.video_id}/masks/{initial_mask_file}"
+                        "mask_url": f"{base_url}/uploads/{request.video_id}/masks/{initial_mask_file}"
                     })
                     continue
                 
@@ -326,8 +342,8 @@ async def track_objects(request: TrackingRequest):
                 mask_path = os.path.join(masks_dir, f"{object_id}_{i:05d}.png")
                 cv2.imwrite(mask_path, initial_mask)
                 
-                # Use a relative URL that will be handled by the frontend
-                mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{i:05d}.png"
+                # Use a fully qualified URL with domain
+                mask_url = f"{base_url}/uploads/{request.video_id}/masks/{object_id}_{i:05d}.png"
                 
                 tracks.append({
                     "frame_index": i,
@@ -347,7 +363,7 @@ async def track_objects(request: TrackingRequest):
     }
 
 @app.post("/apply-effect")
-async def apply_effect(request: EffectRequest):
+async def apply_effect(request: EffectRequest, req: Request = None):
     """Apply a visual effect to an object"""
     video_dir = os.path.join("uploads", request.video_id)
     if not os.path.exists(video_dir):
@@ -364,6 +380,9 @@ async def apply_effect(request: EffectRequest):
     # Create a directory for effects
     effects_dir = os.path.join(video_dir, "effects")
     os.makedirs(effects_dir, exist_ok=True)
+    
+    # Get the base URL for static files
+    base_url = get_base_url(req)
     
     # Apply effect to each mask
     result_frames = []
@@ -461,8 +480,8 @@ async def apply_effect(request: EffectRequest):
             effect_path = os.path.join(effects_dir, effect_filename)
             cv2.imwrite(effect_path, effect_img)
             
-            # Use a relative URL that will be handled by the frontend
-            effect_url = f"/uploads/{request.video_id}/effects/{effect_filename}"
+            # Use a fully qualified URL with domain
+            effect_url = f"{base_url}/uploads/{request.video_id}/effects/{effect_filename}"
             
             result_frames.append({
                 "frame_index": frame_index,
@@ -483,7 +502,8 @@ async def export_video(
     video_id: str = Form(...),
     object_ids: str = Form(...),
     effect_types: str = Form(...),
-    export_type: str = Form(...)
+    export_type: str = Form(...),
+    req: Request = None
 ):
     """Export a video with effects applied"""
     video_dir = os.path.join("uploads", video_id)
@@ -501,6 +521,9 @@ async def export_video(
     # Create a directory for exported videos
     exports_dir = os.path.join("results", video_id)
     os.makedirs(exports_dir, exist_ok=True)
+    
+    # Get the base URL for static files
+    base_url = get_base_url(req)
     
     # Generate a unique filename for the output video
     output_filename = f"{export_type}_{tempfile.NamedTemporaryFile().name.split('/')[-1]}.mp4"
@@ -573,9 +596,8 @@ async def export_video(
         
         video_writer.release()
         
-        # Return the URL to the exported video
-        # Use a relative URL that will be handled by the frontend
-        video_url = f"/results/{video_id}/{output_filename}"
+        # Return the URL to the exported video - use a fully qualified URL with domain
+        video_url = f"{base_url}/results/{video_id}/{output_filename}"
         
         return {
             "video_id": video_id,
