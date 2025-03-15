@@ -254,25 +254,38 @@ git clone --recursive https://github.com/domdolo777/vfx.git
 cd vfx
 ```
 
-3. **Set Up the Backend**:
+3. **Download the MatAnyone Model**:
 ```bash
-cd backend
+# Create the directory
+mkdir -p MatAnyone/pretrained_models
+
+# Download the model file directly
+cd MatAnyone/pretrained_models
+wget --no-check-certificate https://github.com/pq-yang/MatAnyone/releases/download/v1.0.0/matanyone.pth
+
+# Verify the download
+ls -la matanyone.pth  # Should be around 135MB
+```
+
+4. **Set Up the Backend**:
+```bash
+cd /workspace/vfx/backend
 python -m venv venv
 source venv/bin/activate
 pip install -r requirements.txt
 # Install PyTorch with CUDA support
 pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
 # Install additional dependencies
-pip install einops hydra-core easydict omegaconf
+pip install einops hydra-core easydict omegaconf huggingface_hub transformers timm
 ```
 
-4. **Set Up the Frontend**:
+5. **Set Up the Frontend**:
 ```bash
 cd ../vfx-editor
 npm install
 ```
 
-5. **Verify GPU Setup**:
+6. **Verify GPU Setup**:
 Create a file `test_gpu.py`:
 ```python
 import torch
@@ -284,7 +297,7 @@ Run it:
 python test_gpu.py
 ```
 
-6. **Start the Services**:
+7. **Start the Services**:
 In one terminal:
 ```bash
 cd backend
