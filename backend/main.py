@@ -142,6 +142,7 @@ async def get_video_frames(video_id: str, start: int = 0, count: int = 10):
     frames = []
     for frame_file in frame_files:
         frame_path = os.path.join(frames_dir, frame_file)
+        # Return a relative URL path that will be handled by the frontend
         frames.append({
             "frame_index": int(frame_file.split("_")[1].split(".")[0]),
             "url": f"/uploads/{video_id}/frames/{frame_file}"
@@ -182,7 +183,7 @@ async def segment_object(request: SegmentationRequest):
         mask_path = os.path.join(masks_dir, f"{object_id}_{request.frame_index:05d}.png")
         cv2.imwrite(mask_path, mask)
         
-        # Construct the mask URL
+        # Construct the mask URL - use a relative path that will be handled by the frontend
         mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{request.frame_index:05d}.png"
         
         print(f"Mask saved to {mask_path}")
@@ -223,6 +224,7 @@ async def segment_object(request: SegmentationRequest):
         mask_path = os.path.join(masks_dir, f"{object_id}_{request.frame_index:05d}.png")
         cv2.imwrite(mask_path, mask)
         
+        # Use a relative URL that will be handled by the frontend
         mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{request.frame_index:05d}.png"
         print(f"Fallback mask saved to {mask_path}")
         print(f"Fallback mask URL: {mask_url}")
@@ -248,9 +250,9 @@ async def track_objects(request: TrackingRequest):
     frames_dir = os.path.join(video_dir, "frames")
     frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".jpg")])
     
-    # Create a directory for tracking results
-    tracks_dir = os.path.join(video_dir, "tracks")
-    os.makedirs(tracks_dir, exist_ok=True)
+    # Create a directory for tracked masks
+    masks_dir = os.path.join(video_dir, "masks")
+    os.makedirs(masks_dir, exist_ok=True)
     
     # Load all frames
     frames = []
@@ -259,175 +261,221 @@ async def track_objects(request: TrackingRequest):
         frame = cv2.imread(frame_path)
         frames.append(frame)
     
-    # For each object, track it across all frames
-    results = []
+    # Track each object
+    tracked_objects = []
     for object_id in request.object_ids:
+        # Find the initial mask
+        initial_masks = [f for f in os.listdir(masks_dir) if f.startswith(object_id)]
+        if not initial_masks:
+            continue
+        
+        # Get the initial frame index (assuming mask filename format: object_id_frameindex.png)
+        initial_mask_file = sorted(initial_masks)[0]
+        initial_frame_index = int(initial_mask_file.split("_")[1].split(".")[0])
+        
+        # Load the initial mask
+        initial_mask_path = os.path.join(masks_dir, initial_mask_file)
+        initial_mask = cv2.imread(initial_mask_path, cv2.IMREAD_GRAYSCALE)
+        
         try:
-            # Get the first frame mask as a reference
-            masks_dir = os.path.join(video_dir, "masks")
-            mask_files = [f for f in os.listdir(masks_dir) if f.startswith(f"{object_id}_")]
+            # Use MatAnyone to track the object
+            print(f"Tracking object {object_id} starting from frame {initial_frame_index}")
+            tracked_masks = matanyone_wrapper.track_object(frames, initial_mask, initial_frame_index)
             
-            if not mask_files:
-                continue
-            
-            first_mask_path = os.path.join(masks_dir, mask_files[0])
-            first_mask = cv2.imread(first_mask_path, cv2.IMREAD_GRAYSCALE)
-            
-            # Use MatAnyone to track the object across all frames
-            tracked_masks = matanyone_wrapper.track_object(frames, first_mask)
-            
-            # Save the masks for each frame
-            object_tracks = []
-            for i, mask in enumerate(tracked_masks):
-                track_path = os.path.join(tracks_dir, f"{object_id}_{i:05d}.png")
-                cv2.imwrite(track_path, mask)
+            # Save all tracked masks
+            tracks = []
+            for frame_idx, mask in tracked_masks.items():
+                # Convert mask to binary
+                binary_mask = np.where(mask > 127, 255, 0).astype(np.uint8)
                 
-                object_tracks.append({
-                    "frame_index": i,
-                    "mask_url": f"/uploads/{request.video_id}/tracks/{object_id}_{i:05d}.png"
+                # Save the mask
+                mask_path = os.path.join(masks_dir, f"{object_id}_{frame_idx:05d}.png")
+                cv2.imwrite(mask_path, binary_mask)
+                
+                # Use a relative URL that will be handled by the frontend
+                mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{frame_idx:05d}.png"
+                
+                tracks.append({
+                    "frame_index": frame_idx,
+                    "mask_url": mask_url
                 })
+                
+                print(f"Saved tracked mask for object {object_id} at frame {frame_idx}")
             
-            results.append({
+            tracked_objects.append({
                 "object_id": object_id,
-                "tracks": object_tracks
+                "tracks": tracks
             })
         except Exception as e:
-            # If MatAnyone fails, fall back to a simple tracking for testing
-            object_tracks = []
+            print(f"Error tracking object {object_id}: {e}")
+            # Fall back to a simple tracking
             
-            # Get the first frame mask as a reference
-            masks_dir = os.path.join(video_dir, "masks")
-            mask_files = [f for f in os.listdir(masks_dir) if f.startswith(f"{object_id}_")]
-            
-            if not mask_files:
-                continue
-            
-            first_mask_path = os.path.join(masks_dir, mask_files[0])
-            first_mask = cv2.imread(first_mask_path, cv2.IMREAD_GRAYSCALE)
-            
-            # For now, just copy the first mask to all frames with slight variations
-            for i in range(len(frames)):
-                # Add some random variation to simulate tracking
-                mask = first_mask.copy()
-                if i > 0:
-                    # Shift the mask slightly
-                    M = np.float32([[1, 0, i % 10], [0, 1, i % 5]])
-                    mask = cv2.warpAffine(mask, M, (mask.shape[1], mask.shape[0]))
+            # Get all frames
+            tracks = []
+            for i, frame in enumerate(frames):
+                # Skip the initial frame because we already have it
+                if i == initial_frame_index:
+                    # Add the initial mask
+                    tracks.append({
+                        "frame_index": initial_frame_index,
+                        "mask_url": f"/uploads/{request.video_id}/masks/{initial_mask_file}"
+                    })
+                    continue
                 
-                track_path = os.path.join(tracks_dir, f"{object_id}_{i:05d}.png")
-                cv2.imwrite(track_path, mask)
+                # For other frames, create a copy of the initial mask (no tracking)
+                mask_path = os.path.join(masks_dir, f"{object_id}_{i:05d}.png")
+                cv2.imwrite(mask_path, initial_mask)
                 
-                object_tracks.append({
+                # Use a relative URL that will be handled by the frontend
+                mask_url = f"/uploads/{request.video_id}/masks/{object_id}_{i:05d}.png"
+                
+                tracks.append({
                     "frame_index": i,
-                    "mask_url": f"/uploads/{request.video_id}/tracks/{object_id}_{i:05d}.png"
+                    "mask_url": mask_url
                 })
+                
+                print(f"Saved fallback mask for object {object_id} at frame {i}")
             
-            results.append({
+            tracked_objects.append({
                 "object_id": object_id,
-                "tracks": object_tracks,
-                "error": str(e)
+                "tracks": tracks
             })
     
     return {
         "video_id": request.video_id,
-        "objects": results
+        "objects": tracked_objects
     }
 
 @app.post("/apply-effect")
 async def apply_effect(request: EffectRequest):
-    """Apply an effect to a segmented object"""
+    """Apply a visual effect to an object"""
     video_dir = os.path.join("uploads", request.video_id)
     if not os.path.exists(video_dir):
         raise HTTPException(status_code=404, detail="Video not found")
+    
+    # Get the frames
+    frames_dir = os.path.join(video_dir, "frames")
+    frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".jpg")])
+    
+    # Get the masks
+    masks_dir = os.path.join(video_dir, "masks")
+    mask_files = [f for f in os.listdir(masks_dir) if f.startswith(request.object_id)]
     
     # Create a directory for effects
     effects_dir = os.path.join(video_dir, "effects")
     os.makedirs(effects_dir, exist_ok=True)
     
-    # Get the tracking masks for this object
-    tracks_dir = os.path.join(video_dir, "tracks")
-    track_files = sorted([f for f in os.listdir(tracks_dir) if f.startswith(f"{request.object_id}_")])
-    
-    if not track_files:
-        raise HTTPException(status_code=404, detail="Object tracks not found")
-    
-    # Apply the effect to each frame
-    effect_frames = []
-    for track_file in track_files:
-        frame_index = int(track_file.split("_")[1].split(".")[0])
+    # Apply effect to each mask
+    result_frames = []
+    for mask_file in mask_files:
+        # Get the frame index from the mask filename
+        frame_index = int(mask_file.split("_")[1].split(".")[0])
         
-        # Load the original frame
-        frame_path = os.path.join(video_dir, "frames", f"frame_{frame_index:05d}.jpg")
+        # Check if the frame exists
+        if frame_index >= len(frame_files):
+            continue
+        
+        # Load the frame
+        frame_path = os.path.join(frames_dir, frame_files[frame_index])
         frame = cv2.imread(frame_path)
         
         # Load the mask
-        track_path = os.path.join(tracks_dir, track_file)
-        mask = cv2.imread(track_path, cv2.IMREAD_GRAYSCALE)
+        mask_path = os.path.join(masks_dir, mask_file)
+        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
         
-        # Apply the effect based on the type
-        if request.effect_type == "blur":
-            # Apply blur to the masked region
-            blur_amount = request.effect_params.get("amount", 15)
-            blurred = cv2.GaussianBlur(frame, (blur_amount, blur_amount), 0)
-            # Apply the mask
-            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-            result = frame * (1 - mask_3ch) + blurred * mask_3ch
-            result = result.astype(np.uint8)
-        elif request.effect_type == "bw":
-            # Convert to black and white
-            bw = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
-            bw = cv2.cvtColor(bw, cv2.COLOR_GRAY2BGR)
-            # Apply the mask
-            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-            result = frame * (1 - mask_3ch) + bw * mask_3ch
-            result = result.astype(np.uint8)
-        elif request.effect_type == "chroma":
-            # Apply chromatic aberration
-            # Split the channels
-            b, g, r = cv2.split(frame)
-            # Shift the red channel to the right
-            shift_amount = request.effect_params.get("amount", 5)
-            M_r = np.float32([[1, 0, shift_amount], [0, 1, 0]])
-            r_shifted = cv2.warpAffine(r, M_r, (frame.shape[1], frame.shape[0]))
-            # Shift the blue channel to the left
-            M_b = np.float32([[1, 0, -shift_amount], [0, 1, 0]])
-            b_shifted = cv2.warpAffine(b, M_b, (frame.shape[1], frame.shape[0]))
-            # Merge the channels
-            chroma = cv2.merge([b_shifted, g, r_shifted])
-            # Apply the mask
-            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-            result = frame * (1 - mask_3ch) + chroma * mask_3ch
-            result = result.astype(np.uint8)
-        elif request.effect_type == "glow":
-            # Apply glow effect
-            glow_amount = request.effect_params.get("amount", 10)
-            # Blur the image
-            blurred = cv2.GaussianBlur(frame, (glow_amount*2+1, glow_amount*2+1), 0)
-            # Increase brightness
-            brightness = np.ones(blurred.shape, dtype="uint8") * 50
-            brightened = cv2.add(blurred, brightness)
-            # Apply the mask
-            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-            result = frame * (1 - mask_3ch) + brightened * mask_3ch
-            result = result.astype(np.uint8)
-        else:
-            # Default: no effect
-            result = frame
-        
-        # Save the result
-        effect_path = os.path.join(effects_dir, f"{request.object_id}_{request.effect_type}_{frame_index:05d}.jpg")
-        cv2.imwrite(effect_path, result)
-        
-        effect_frames.append({
-            "frame_index": frame_index,
-            "effect_url": f"/uploads/{request.video_id}/effects/{request.object_id}_{request.effect_type}_{frame_index:05d}.jpg"
-        })
+        try:
+            # Apply the effect based on the type
+            effect_type = request.effect_type
+            effect_params = request.effect_params
+            
+            # Create effect image (same size as frame)
+            effect_img = np.zeros_like(frame)
+            
+            # For demonstration, we'll just apply some simple effects
+            if effect_type == "blur":
+                # Apply blur where the mask is
+                blur_amount = effect_params.get("amount", 15)
+                blurred = cv2.GaussianBlur(frame, (blur_amount * 2 + 1, blur_amount * 2 + 1), 0)
+                mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                effect_img = np.where(mask_3ch > 0, blurred, 0)
+            
+            elif effect_type == "bw":
+                # Convert to grayscale where the mask is
+                gray = cv2.cvtColor(frame, cv2.COLOR_BGR2GRAY)
+                gray_3ch = cv2.cvtColor(gray, cv2.COLOR_GRAY2BGR)
+                mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                effect_img = np.where(mask_3ch > 0, gray_3ch, 0)
+            
+            elif effect_type == "chroma":
+                # Simple chromatic aberration effect
+                amount = effect_params.get("amount", 5)
+                
+                # Split into channels
+                b, g, r = cv2.split(frame)
+                
+                # Shift red channel
+                M = np.float32([[1, 0, amount], [0, 1, 0]])
+                r_shifted = cv2.warpAffine(r, M, (frame.shape[1], frame.shape[0]))
+                
+                # Shift blue channel
+                M = np.float32([[1, 0, -amount], [0, 1, 0]])
+                b_shifted = cv2.warpAffine(b, M, (frame.shape[1], frame.shape[0]))
+                
+                # Merge channels
+                chroma = cv2.merge([b_shifted, g, r_shifted])
+                
+                # Apply only where the mask is
+                mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                effect_img = np.where(mask_3ch > 0, chroma, 0)
+            
+            elif effect_type == "glow":
+                # Simple glow effect
+                amount = effect_params.get("amount", 10)
+                
+                # Dilate the mask
+                kernel = np.ones((amount, amount), np.uint8)
+                dilated_mask = cv2.dilate(mask, kernel, iterations=1)
+                
+                # Create a gradient from the original mask to the dilated mask
+                gradient_mask = dilated_mask.copy()
+                gradient_mask[mask > 0] = 0
+                
+                # Apply a gaussian blur to create a glow effect
+                blurred = cv2.GaussianBlur(frame, (21, 21), 0)
+                
+                # Combine with original frame
+                mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                gradient_mask_3ch = cv2.cvtColor(gradient_mask, cv2.COLOR_GRAY2BGR)
+                
+                # Use original colors for the object and blurred colors for the glow
+                effect_img = np.where(mask_3ch > 0, frame, 0)
+                effect_img = np.where(gradient_mask_3ch > 0, blurred, effect_img)
+            
+            else:
+                # Unknown effect type, just use the mask as is
+                mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                effect_img = mask_3ch
+            
+            # Save the effect image
+            effect_filename = f"{request.object_id}_{effect_type}_{frame_index:05d}.png"
+            effect_path = os.path.join(effects_dir, effect_filename)
+            cv2.imwrite(effect_path, effect_img)
+            
+            # Use a relative URL that will be handled by the frontend
+            effect_url = f"/uploads/{request.video_id}/effects/{effect_filename}"
+            
+            result_frames.append({
+                "frame_index": frame_index,
+                "effect_url": effect_url
+            })
+        except Exception as e:
+            print(f"Error applying effect {effect_type} to frame {frame_index}: {e}")
     
     return {
         "video_id": request.video_id,
         "object_id": request.object_id,
         "effect_type": request.effect_type,
-        "frames": effect_frames
+        "frames": result_frames
     }
 
 @app.post("/export-video")
@@ -437,89 +485,106 @@ async def export_video(
     effect_types: str = Form(...),
     export_type: str = Form(...)
 ):
-    """Export the final video with all effects applied"""
-    
+    """Export a video with effects applied"""
     video_dir = os.path.join("uploads", video_id)
     if not os.path.exists(video_dir):
         raise HTTPException(status_code=404, detail="Video not found")
     
     # Parse the object IDs and effect types
-    object_ids = object_ids.split(",")
-    effect_types = effect_types.split(",")
+    object_id_list = object_ids.split(",")
+    effect_type_list = effect_types.split(",")
     
-    # Get the original video properties
+    # Get all frames
     frames_dir = os.path.join(video_dir, "frames")
     frame_files = sorted([f for f in os.listdir(frames_dir) if f.endswith(".jpg")])
     
-    if not frame_files:
-        raise HTTPException(status_code=404, detail="No frames found")
+    # Create a directory for exported videos
+    exports_dir = os.path.join("results", video_id)
+    os.makedirs(exports_dir, exist_ok=True)
     
-    # Get the first frame to determine dimensions
+    # Generate a unique filename for the output video
+    output_filename = f"{export_type}_{tempfile.NamedTemporaryFile().name.split('/')[-1]}.mp4"
+    output_path = os.path.join(exports_dir, output_filename)
+    
+    # Load the first frame to get dimensions
     first_frame_path = os.path.join(frames_dir, frame_files[0])
     first_frame = cv2.imread(first_frame_path)
     height, width = first_frame.shape[:2]
     
-    # Create a directory for the export
-    export_dir = os.path.join("results", video_id)
-    os.makedirs(export_dir, exist_ok=True)
-    
     # Create a video writer
-    export_path = os.path.join(export_dir, f"{export_type}.mp4")
-    fourcc = cv2.VideoWriter_fourcc(*'mp4v')
-    out = cv2.VideoWriter(export_path, fourcc, 30.0, (width, height))
+    fourcc = cv2.VideoWriter_fourcc(*'avc1')  # H.264 codec
+    fps = 30  # Assuming 30 fps
+    video_writer = cv2.VideoWriter(output_path, fourcc, fps, (width, height))
     
-    # Process each frame
-    for i, frame_file in enumerate(frame_files):
-        # Load the original frame
-        frame_path = os.path.join(frames_dir, frame_file)
-        frame = cv2.imread(frame_path)
-        
-        if export_type == "mask":
-            # For mask export, create a black frame with white masks
-            result = np.zeros_like(frame)
+    try:
+        # Process each frame
+        for i, frame_file in enumerate(frame_files):
+            # Load the original frame
+            frame_path = os.path.join(frames_dir, frame_file)
+            frame = cv2.imread(frame_path)
             
-            # Add each object's mask
-            for object_id in object_ids:
-                tracks_dir = os.path.join(video_dir, "tracks")
-                track_path = os.path.join(tracks_dir, f"{object_id}_{i:05d}.png")
+            if export_type == "mask":
+                # Export with visible masks
+                result = frame.copy()
                 
-                if os.path.exists(track_path):
-                    mask = cv2.imread(track_path, cv2.IMREAD_GRAYSCALE)
-                    # Convert mask to white
-                    white_mask = np.zeros_like(frame)
-                    white_mask[mask > 0] = [255, 255, 255]
-                    result = cv2.add(result, white_mask)
-        else:
-            # For FX export, apply all effects
-            result = frame.copy()
+                # Apply each object's mask
+                for j, object_id in enumerate(object_id_list):
+                    # Look for this frame's mask
+                    mask_path = os.path.join(video_dir, "masks", f"{object_id}_{i:05d}.png")
+                    if os.path.exists(mask_path):
+                        mask = cv2.imread(mask_path, cv2.IMREAD_GRAYSCALE)
+                        
+                        # Convert to color mask using the object's color
+                        color_index = j % len([(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)])
+                        color = [(255, 0, 0), (0, 255, 0), (0, 0, 255), (255, 255, 0), (0, 255, 255)][color_index]
+                        
+                        colored_mask = np.zeros_like(frame)
+                        colored_mask[:, :, 0] = mask // 255 * color[0]
+                        colored_mask[:, :, 1] = mask // 255 * color[1]
+                        colored_mask[:, :, 2] = mask // 255 * color[2]
+                        
+                        # Blend with the original frame
+                        alpha = 0.5  # Transparency level
+                        result = cv2.addWeighted(result, 1, colored_mask, alpha, 0)
+                
+                video_writer.write(result)
             
-            # Apply each object's effect
-            for object_id, effect_type in zip(object_ids, effect_types):
-                effects_dir = os.path.join(video_dir, "effects")
-                effect_path = os.path.join(effects_dir, f"{object_id}_{effect_type}_{i:05d}.jpg")
+            elif export_type == "fx":
+                # Export with effects applied
+                result = frame.copy()
                 
-                if os.path.exists(effect_path):
-                    effect_frame = cv2.imread(effect_path)
-                    # Replace the corresponding region in the result
-                    tracks_dir = os.path.join(video_dir, "tracks")
-                    track_path = os.path.join(tracks_dir, f"{object_id}_{i:05d}.png")
-                    
-                    if os.path.exists(track_path):
-                        mask = cv2.imread(track_path, cv2.IMREAD_GRAYSCALE)
-                        mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR) / 255.0
-                        result = result * (1 - mask_3ch) + effect_frame * mask_3ch
-                        result = result.astype(np.uint8)
+                # Apply each object's effect
+                for j, (object_id, effect_type) in enumerate(zip(object_id_list, effect_type_list)):
+                    # Look for this frame's effect
+                    effect_path = os.path.join(video_dir, "effects", f"{object_id}_{effect_type}_{i:05d}.png")
+                    if os.path.exists(effect_path):
+                        effect = cv2.imread(effect_path)
+                        
+                        # Add the effect to the result
+                        if effect is not None and effect.shape == result.shape:
+                            # Only apply the effect where it's not black (0, 0, 0)
+                            mask = np.all(effect > 0, axis=2).astype(np.uint8) * 255
+                            mask_3ch = cv2.cvtColor(mask, cv2.COLOR_GRAY2BGR)
+                            
+                            # Blend the effect with the result
+                            result = np.where(mask_3ch > 0, effect, result)
+                
+                video_writer.write(result)
         
-        # Write the frame to the video
-        out.write(result)
-    
-    out.release()
-    
-    return {
-        "video_id": video_id,
-        "export_type": export_type,
-        "video_url": f"/results/{video_id}/{export_type}.mp4"
-    }
+        video_writer.release()
+        
+        # Return the URL to the exported video
+        # Use a relative URL that will be handled by the frontend
+        video_url = f"/results/{video_id}/{output_filename}"
+        
+        return {
+            "video_id": video_id,
+            "export_type": export_type,
+            "video_url": video_url
+        }
+    except Exception as e:
+        video_writer.release()
+        raise HTTPException(status_code=500, detail=f"Error exporting video: {str(e)}")
 
 @app.get("/check-mask/{video_id}/{mask_file}")
 async def check_mask(video_id: str, mask_file: str):
