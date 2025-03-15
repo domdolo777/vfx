@@ -764,6 +764,9 @@ async def list_masks(video_id: str, req: Request = None):
     masks_dir = os.path.join("uploads", video_id, "masks")
     tracks_dir = os.path.join("uploads", video_id, "tracks")
     
+    print(f"Checking for masks in: {masks_dir}")
+    print(f"Checking for tracks in: {tracks_dir}")
+    
     # Check if directories exist
     if not os.path.exists(masks_dir) and not os.path.exists(tracks_dir):
         print(f"Neither mask directory found: {masks_dir} or {tracks_dir}")
@@ -775,14 +778,23 @@ async def list_masks(video_id: str, req: Request = None):
     
     # Get all mask files from both masks and tracks directories
     mask_files = []
-    if os.path.exists(masks_dir):
-        mask_files.extend([os.path.join("masks", f) for f in os.listdir(masks_dir) if f.endswith(".png")])
-        print(f"Found {len(mask_files)} mask files in masks directory")
     
+    # First check tracks directory as it's more likely to have the most recent masks
     if os.path.exists(tracks_dir):
         track_files = [os.path.join("tracks", f) for f in os.listdir(tracks_dir) if f.endswith(".png")]
         mask_files.extend(track_files)
         print(f"Found {len(track_files)} mask files in tracks directory")
+        # Print some examples
+        if track_files:
+            print(f"Example track files: {track_files[:3]}")
+    
+    if os.path.exists(masks_dir):
+        mask_dir_files = [os.path.join("masks", f) for f in os.listdir(masks_dir) if f.endswith(".png")]
+        mask_files.extend(mask_dir_files)
+        print(f"Found {len(mask_dir_files)} mask files in masks directory")
+        # Print some examples
+        if mask_dir_files:
+            print(f"Example mask files: {mask_dir_files[:3]}")
     
     print(f"Found {len(mask_files)} total mask files")
     
@@ -793,6 +805,8 @@ async def list_masks(video_id: str, req: Request = None):
             # Extract the filename from the path
             mask_file = os.path.basename(mask_file_path)
             mask_dir = os.path.dirname(mask_file_path)
+            
+            print(f"Processing mask file: {mask_file} in {mask_dir}")
             
             # Extract object ID and frame index using regex
             # Support multiple formats:
@@ -1030,6 +1044,78 @@ async def debug_mask_file(video_id: str, mask_file: str):
             "message": str(e),
             "exists": True
         }
+
+@app.get("/debug/mask-directories/{video_id}")
+async def debug_mask_directories(video_id: str):
+    """Debug endpoint to examine mask and tracks directories"""
+    masks_dir = os.path.join("uploads", video_id, "masks")
+    tracks_dir = os.path.join("uploads", video_id, "tracks")
+    
+    result = {
+        "video_id": video_id,
+        "masks_directory": {
+            "path": masks_dir,
+            "exists": os.path.exists(masks_dir),
+            "files": []
+        },
+        "tracks_directory": {
+            "path": tracks_dir,
+            "exists": os.path.exists(tracks_dir),
+            "files": []
+        }
+    }
+    
+    # Check masks directory
+    if os.path.exists(masks_dir):
+        mask_files = [f for f in os.listdir(masks_dir) if f.endswith(".png")]
+        result["masks_directory"]["files"] = mask_files
+        result["masks_directory"]["count"] = len(mask_files)
+        
+        # Sample some files
+        if mask_files:
+            sample_path = os.path.join(masks_dir, mask_files[0])
+            if os.path.exists(sample_path):
+                try:
+                    # Try to load the first mask to get stats
+                    mask = cv2.imread(sample_path, cv2.IMREAD_UNCHANGED)
+                    if mask is not None:
+                        result["masks_directory"]["sample"] = {
+                            "file": mask_files[0],
+                            "shape": list(mask.shape),
+                            "dtype": str(mask.dtype),
+                            "min_value": int(mask.min()) if mask.size > 0 else None,
+                            "max_value": int(mask.max()) if mask.size > 0 else None,
+                            "size_bytes": os.path.getsize(sample_path)
+                        }
+                except Exception as e:
+                    result["masks_directory"]["sample_error"] = str(e)
+    
+    # Check tracks directory
+    if os.path.exists(tracks_dir):
+        track_files = [f for f in os.listdir(tracks_dir) if f.endswith(".png")]
+        result["tracks_directory"]["files"] = track_files
+        result["tracks_directory"]["count"] = len(track_files)
+        
+        # Sample some files
+        if track_files:
+            sample_path = os.path.join(tracks_dir, track_files[0])
+            if os.path.exists(sample_path):
+                try:
+                    # Try to load the first track mask to get stats
+                    mask = cv2.imread(sample_path, cv2.IMREAD_UNCHANGED)
+                    if mask is not None:
+                        result["tracks_directory"]["sample"] = {
+                            "file": track_files[0],
+                            "shape": list(mask.shape),
+                            "dtype": str(mask.dtype),
+                            "min_value": int(mask.min()) if mask.size > 0 else None,
+                            "max_value": int(mask.max()) if mask.size > 0 else None,
+                            "size_bytes": os.path.getsize(sample_path)
+                        }
+                except Exception as e:
+                    result["tracks_directory"]["sample_error"] = str(e)
+    
+    return result
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
