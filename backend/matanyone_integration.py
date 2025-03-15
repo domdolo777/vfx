@@ -418,36 +418,40 @@ class MatAnyoneWrapper:
             self.processor.clear_memory()
             
             # Record the result for initial frame
-            result[initial_frame_index] = binary_mask
+            result[initial_frame_index] = binary_mask.copy()
             
-            # Convert mask to tensor - MatAnyone expects a float tensor normalized to [0,1]
-            mask_tensor = torch.from_numpy(binary_mask).float().to(self.device) / 255.0
-            
-            # Process the initial frame with the mask
-            print(f"Initializing tracking with frame {initial_frame_index}")
-            
-            # Process frames in sequence from initial frame to end
-            for i in range(len(frames)):
-                frame = frames[i]
-                
+            # Convert frames to tensors
+            frame_tensors = []
+            for frame in frames:
                 # Convert to RGB and normalize
                 frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
-                frame_tensor = frame_tensor.to(self.device)
-                
+                frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float()
+                frame_tensors.append(frame_tensor)
+            
+            # Convert mask to tensor - MatAnyone expects a float tensor
+            mask_tensor = torch.from_numpy(binary_mask).float().to(self.device)
+            
+            # Define object ID
+            objects = [1]  # Single object with ID 1
+            
+            # Following the official example code pattern
+            # First, encode the given mask
+            print(f"Initializing tracking with frame {initial_frame_index}")
+            
+            # Process frames in sequence
+            for i in range(len(frames)):
                 try:
+                    # Normalize the frame for network input
+                    image = frame_tensors[i].to(self.device) / 255.0
+                    
                     if i == initial_frame_index:
-                        # Initialize with mask on the first frame
-                        # The step method expects [C, H, W] for image and [H, W] for mask
-                        output_prob = self.processor.step(
-                            frame_tensor,
-                            mask_tensor,
-                            objects=[1],  # Single object with ID 1
-                            first_frame_pred=(i == initial_frame_index)  # Indicate this is the first frame
-                        )
+                        # First encode the given mask
+                        output_prob = self.processor.step(image, mask_tensor, objects=objects)
+                        # Then initialize the first frame for prediction
+                        output_prob = self.processor.step(image, first_frame_pred=True)
                     else:
                         # For subsequent frames, just pass the frame
-                        output_prob = self.processor.step(frame_tensor)
+                        output_prob = self.processor.step(image)
                     
                     # Convert output probability to mask
                     result_mask = self.processor.output_prob_to_mask(output_prob)
@@ -461,11 +465,14 @@ class MatAnyoneWrapper:
                     # Store the result
                     result[i] = mask_binary
                     
-                    if i > initial_frame_index:
+                    if i != initial_frame_index:
                         print(f"Tracked to frame {i} successfully")
                     
                 except Exception as e:
                     print(f"Error tracking frame {i}: {e}")
+                    import traceback
+                    traceback.print_exc()
+                    
                     # If tracking fails, use optical flow for this frame
                     if i not in result:
                         # If we couldn't track this frame, use optical flow from previous frame
@@ -528,6 +535,8 @@ class MatAnyoneWrapper:
         
         # Create points array for optical flow
         points = np.array([[mask_indices[1][i], mask_indices[0][i]] for i in sample_indices], dtype=np.float32)
+        
+        # Reshape for calcOpticalFlowPyrLK
         points = points.reshape(-1, 1, 2)
         
         # Calculate optical flow
