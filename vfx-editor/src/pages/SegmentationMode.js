@@ -126,23 +126,95 @@ const SegmentationMode = () => {
         
         maskImg.onload = () => {
           console.log('Mask loaded successfully:', fullMaskUrl);
-          // Apply a semi-transparent colored overlay for the mask
+          
+          // Create a temporary canvas to process the mask
+          const tempCanvas = document.createElement('canvas');
+          tempCanvas.width = maskImg.width;
+          tempCanvas.height = maskImg.height;
+          const tempCtx = tempCanvas.getContext('2d');
+          
+          // Draw the mask on the temporary canvas
+          tempCtx.drawImage(maskImg, 0, 0);
+          
+          // Get the mask data
+          const maskData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+          
+          // Create a colored version of the mask
+          const coloredMaskData = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+          const objectColor = objectColors[index % objectColors.length];
+          
+          // Parse the hex color to RGB
+          const r = parseInt(objectColor.slice(1, 3), 16);
+          const g = parseInt(objectColor.slice(3, 5), 16);
+          const b = parseInt(objectColor.slice(5, 7), 16);
+          
+          // Apply the color to the mask
+          for (let i = 0; i < maskData.data.length; i += 4) {
+            if (maskData.data[i] > 0) { // If there's any value in the mask
+              coloredMaskData.data[i] = r;     // R
+              coloredMaskData.data[i + 1] = g; // G
+              coloredMaskData.data[i + 2] = b; // B
+              coloredMaskData.data[i + 3] = 128; // Alpha (semi-transparent)
+            }
+          }
+          
+          // Put the colored mask back on the temporary canvas
+          tempCtx.putImageData(coloredMaskData, 0, 0);
+          
+          // Draw the colored mask on the main canvas
           ctx.save();
-          ctx.globalAlpha = 0.5;
-          ctx.drawImage(maskImg, 0, 0);
+          ctx.drawImage(tempCanvas, 0, 0);
           ctx.restore();
           
-          // Highlight the selected object
+          // Highlight the selected object with an outline
           if (selectedObjectIndex === index) {
             ctx.save();
-            ctx.strokeStyle = objectColors[index % objectColors.length];
+            ctx.strokeStyle = objectColor;
             ctx.lineWidth = 3;
-            ctx.globalAlpha = 0.8;
-            ctx.beginPath();
-            // Draw outline around the mask (simplified)
-            // In a real application, you would trace the actual contour of the mask
-            ctx.rect(0, 0, maskImg.width, maskImg.height);
-            ctx.stroke();
+            
+            // Find the contours of the mask (simplified approach)
+            // In a real implementation, you would use a proper contour finding algorithm
+            const edgeCanvas = document.createElement('canvas');
+            edgeCanvas.width = maskImg.width;
+            edgeCanvas.height = maskImg.height;
+            const edgeCtx = edgeCanvas.getContext('2d');
+            
+            // Draw the mask
+            edgeCtx.drawImage(maskImg, 0, 0);
+            
+            // Apply edge detection (simple dilation and subtraction)
+            const maskImgData = edgeCtx.getImageData(0, 0, edgeCanvas.width, edgeCanvas.height);
+            const edgeData = new Uint8ClampedArray(maskImgData.data.length);
+            
+            // Create a dilated version by checking neighboring pixels
+            for (let y = 1; y < edgeCanvas.height - 1; y++) {
+              for (let x = 1; x < edgeCanvas.width - 1; x++) {
+                const idx = (y * edgeCanvas.width + x) * 4;
+                if (maskImgData.data[idx] > 0) {
+                  // Check if any neighboring pixel is not part of the mask
+                  const hasEmptyNeighbor = 
+                    maskImgData.data[idx - 4] === 0 || // left
+                    maskImgData.data[idx + 4] === 0 || // right
+                    maskImgData.data[idx - edgeCanvas.width * 4] === 0 || // top
+                    maskImgData.data[idx + edgeCanvas.width * 4] === 0;   // bottom
+                  
+                  if (hasEmptyNeighbor) {
+                    // This is an edge pixel
+                    edgeData[idx] = 255;     // R
+                    edgeData[idx + 1] = 255; // G
+                    edgeData[idx + 2] = 255; // B
+                    edgeData[idx + 3] = 255; // A
+                  }
+                }
+              }
+            }
+            
+            // Create an ImageData object with the edge data
+            const edgeImgData = new ImageData(edgeData, edgeCanvas.width, edgeCanvas.height);
+            edgeCtx.putImageData(edgeImgData, 0, 0);
+            
+            // Draw the edge on the main canvas
+            ctx.drawImage(edgeCanvas, 0, 0);
             ctx.restore();
           }
         };
@@ -152,7 +224,7 @@ const SegmentationMode = () => {
         };
       }
     });
-  }, [objects, currentFrameIndex, selectedObjectIndex]);
+  }, [objects, currentFrameIndex, selectedObjectIndex, objectColors]);
 
   // Draw the current frame on the canvas
   useEffect(() => {

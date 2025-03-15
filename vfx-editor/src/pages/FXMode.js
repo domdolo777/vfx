@@ -252,19 +252,35 @@ const FXMode = () => {
                       console.log('Loading effect', effectType, 'from', fullEffectUrl);
                       
                       const effectImg = new Image();
-                      effectImg.crossOrigin = "anonymous"; // Add cross-origin attribute
+                      effectImg.crossOrigin = "anonymous";
                       effectImg.src = fullEffectUrl;
                       
                       effectImg.onload = () => {
                         console.log('Effect loaded successfully:', fullEffectUrl);
+                        // Apply the effect with proper opacity
                         ctx.save();
+                        
+                        // Apply the effect with the specified opacity
                         ctx.globalAlpha = globalParams.fxOpacity / 100;
-                        ctx.drawImage(effectImg, 0, 0);
+                        
+                        // If invert is enabled, we need to apply the effect to the non-masked area
+                        if (globalParams.invertFX) {
+                          // First draw the effect over the entire canvas
+                          ctx.drawImage(effectImg, 0, 0);
+                          
+                          // Then use "destination-out" to remove the effect from the masked area
+                          ctx.globalCompositeOperation = 'destination-out';
+                          ctx.drawImage(maskImg, 0, 0);
+                        } else {
+                          // Normal mode: just draw the effect
+                          ctx.drawImage(effectImg, 0, 0);
+                        }
+                        
                         ctx.restore();
                       };
                       
-                      effectImg.onerror = (err) => {
-                        console.error('Error loading effect:', fullEffectUrl, err);
+                      effectImg.onerror = () => {
+                        console.error('Failed to load effect image:', fullEffectUrl);
                       };
                     }
                   });
@@ -281,17 +297,17 @@ const FXMode = () => {
                 }
               };
               
-              maskImg.onerror = (err) => {
-                console.error('Error loading mask:', fullMaskUrl, err);
+              maskImg.onerror = () => {
+                console.error('Failed to load mask image:', fullMaskUrl);
               };
             }
           });
         }
       };
       
-      img.onerror = (err) => {
-        console.error('Error loading frame:', fullUrl, err);
-        setError(`Failed to load frame: ${fullUrl}`);
+      img.onerror = () => {
+        console.error('Failed to load frame image:', fullUrl);
+        setError('Failed to load frame');
       };
     }
   }, [frames, currentFrameIndex, objects, selectedObjectIndex, globalParams]);
