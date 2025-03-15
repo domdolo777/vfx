@@ -231,13 +231,28 @@ const FXMode = () => {
             objects.forEach((object, index) => {
               console.log(`Processing object ${index}:`, object);
               
-              if (object.visible && object.masks && object.masks[currentFrameIndex]) {
+              if (object.visible && object.masks) {
+                // Check if we have a mask for this frame
                 const maskUrl = object.masks[currentFrameIndex];
+                if (!maskUrl) {
+                  console.log(`No mask found for object ${object.id} at frame ${currentFrameIndex}`);
+                  return; // Skip this object
+                }
+                
                 const fullMaskUrl = maskUrl.startsWith('http') 
                   ? maskUrl 
                   : `${config.apiUrl}${maskUrl}`;
                 
                 console.log('Loading mask for object', index, 'from', fullMaskUrl);
+                
+                // Debug: Check if the mask URL is accessible
+                fetch(fullMaskUrl, { method: 'HEAD' })
+                  .then(response => {
+                    console.log(`Mask URL ${fullMaskUrl} status: ${response.status}`);
+                  })
+                  .catch(error => {
+                    console.error(`Error checking mask URL ${fullMaskUrl}:`, error);
+                  });
                 
                 const maskImg = new Image();
                 maskImg.crossOrigin = "anonymous"; // Critical for CORS handling
@@ -258,6 +273,16 @@ const FXMode = () => {
                   // Get the mask data
                   const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
                   
+                  // Debug: Log mask data stats
+                  let nonZeroPixels = 0;
+                  for (let i = 0; i < maskData.data.length; i += 4) {
+                    if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || 
+                        maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
+                      nonZeroPixels++;
+                    }
+                  }
+                  console.log(`Mask has ${nonZeroPixels} non-zero pixels out of ${maskData.data.length/4} total pixels`);
+                  
                   // Create a colored version of the mask
                   const coloredMaskData = new ImageData(canvas.width, canvas.height);
                   const objectColor = objectColors[index % objectColors.length];
@@ -266,6 +291,8 @@ const FXMode = () => {
                   const r = parseInt(objectColor.slice(1, 3), 16);
                   const g = parseInt(objectColor.slice(3, 5), 16);
                   const b = parseInt(objectColor.slice(5, 7), 16);
+                  
+                  console.log(`Using color ${objectColor} (${r},${g},${b}) for object ${object.id}`);
                   
                   // Apply the color to the mask with the global opacity setting
                   for (let i = 0; i < maskData.data.length; i += 4) {
@@ -286,6 +313,8 @@ const FXMode = () => {
                   ctx.globalCompositeOperation = 'source-over';
                   ctx.drawImage(tempCanvas, 0, 0);
                   ctx.restore();
+                  
+                  console.log(`Mask for object ${object.id} drawn successfully`);
                   
                   // If this object has effects, draw them
                   if (object.effects) {
@@ -330,16 +359,70 @@ const FXMode = () => {
                           ctx.restore();
                         };
                         
-                        effectImg.onerror = () => {
-                          console.error('Failed to load effect image:', fullEffectUrl);
+                        effectImg.onerror = (e) => {
+                          console.error('Failed to load effect image:', fullEffectUrl, e);
                         };
                       }
                     });
                   }
                 };
                 
-                maskImg.onerror = () => {
-                  console.error('Failed to load mask image:', fullMaskUrl);
+                maskImg.onerror = (e) => {
+                  console.error('Failed to load mask image:', fullMaskUrl, e);
+                  
+                  // Try an alternative URL format as fallback
+                  const altMaskUrl = `${config.apiUrl}/uploads/${videoId}/masks/${object.id}_${currentFrameIndex.toString().padStart(5, '0')}.png`;
+                  console.log('Trying alternative mask URL:', altMaskUrl);
+                  
+                  const altMaskImg = new Image();
+                  altMaskImg.crossOrigin = "anonymous";
+                  altMaskImg.src = altMaskUrl;
+                  
+                  altMaskImg.onload = () => {
+                    console.log('Alternative mask loaded successfully:', altMaskUrl);
+                    // Draw the mask using the same code as above
+                    const tempCanvas = document.createElement('canvas');
+                    tempCanvas.width = canvas.width;
+                    tempCanvas.height = canvas.height;
+                    const tempCtx = tempCanvas.getContext('2d');
+                    
+                    tempCtx.drawImage(altMaskImg, 0, 0, canvas.width, canvas.height);
+                    
+                    // Get the mask data
+                    const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+                    
+                    // Create a colored version of the mask
+                    const coloredMaskData = new ImageData(canvas.width, canvas.height);
+                    const objectColor = objectColors[index % objectColors.length];
+                    
+                    // Parse the hex color to RGB
+                    const r = parseInt(objectColor.slice(1, 3), 16);
+                    const g = parseInt(objectColor.slice(3, 5), 16);
+                    const b = parseInt(objectColor.slice(5, 7), 16);
+                    
+                    // Apply the color to the mask with the global opacity setting
+                    for (let i = 0; i < maskData.data.length; i += 4) {
+                      if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
+                        coloredMaskData.data[i] = r;     // R
+                        coloredMaskData.data[i + 1] = g; // G
+                        coloredMaskData.data[i + 2] = b; // B
+                        coloredMaskData.data[i + 3] = Math.round(255 * (globalParams.maskOpacity / 100)); // Alpha based on global setting
+                      }
+                    }
+                    
+                    // Put the colored mask back on the temporary canvas
+                    tempCtx.putImageData(coloredMaskData, 0, 0);
+                    
+                    // Draw the colored mask on the main canvas
+                    ctx.save();
+                    ctx.globalCompositeOperation = 'source-over';
+                    ctx.drawImage(tempCanvas, 0, 0);
+                    ctx.restore();
+                  };
+                  
+                  altMaskImg.onerror = () => {
+                    console.error('Failed to load alternative mask image:', altMaskUrl);
+                  };
                 };
               }
             });
@@ -349,8 +432,8 @@ const FXMode = () => {
         }
       };
       
-      img.onerror = () => {
-        console.error('Failed to load frame image:', fullUrl);
+      img.onerror = (e) => {
+        console.error('Failed to load frame image:', fullUrl, e);
         setError('Failed to load frame');
       };
     }
@@ -367,9 +450,18 @@ const FXMode = () => {
         const response = await axios.get(`${config.apiUrl}/video-frames/${videoId}?start=0&count=1`);
         
         // Get all masks from the uploads directory for this video
+        console.log(`Fetching masks from ${config.apiUrl}/list-masks/${videoId}`);
         const masksResponse = await axios.get(`${config.apiUrl}/list-masks/${videoId}`);
+        console.log('Masks response:', masksResponse.data);
         
         if (masksResponse.data && masksResponse.data.objects && masksResponse.data.objects.length > 0) {
+          console.log(`Found ${masksResponse.data.objects.length} objects with masks`);
+          
+          // Log the first object's masks to debug
+          const firstObj = masksResponse.data.objects[0];
+          console.log(`First object ${firstObj.id} has ${Object.keys(firstObj.masks).length} masks`);
+          console.log('Sample mask URL:', firstObj.masks[Object.keys(firstObj.masks)[0]]);
+          
           setObjects(masksResponse.data.objects.map(obj => ({
             id: obj.id,
             name: obj.name || `Object ${obj.id.substring(4, 10)}`,
@@ -408,7 +500,9 @@ const FXMode = () => {
               const masks = {};
               // Assume masks exist for frames 0-30 (for simplicity)
               for (let i = 0; i < 30; i++) {
-                masks[i] = `${config.apiUrl}/uploads/${videoId}/masks/${objId}_${i.toString().padStart(5, '0')}.png`;
+                const paddedIndex = i.toString().padStart(5, '0');
+                masks[i] = `${config.apiUrl}/uploads/${videoId}/masks/${objId}_${paddedIndex}.png`;
+                console.log(`Created mask URL for ${objId}, frame ${i}: ${masks[i]}`);
               }
               
               objectsWithMasks.push({
@@ -422,6 +516,7 @@ const FXMode = () => {
             }
             
             if (objectsWithMasks.length > 0) {
+              console.log(`Created ${objectsWithMasks.length} objects with masks from logs`);
               setObjects(objectsWithMasks);
               setSelectedObjectIndex(0);
             } else {
