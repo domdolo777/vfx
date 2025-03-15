@@ -33,7 +33,7 @@ except ImportError as e:
 config_dir = os.path.join(os.path.dirname(__file__), "matanyone_config")
 os.makedirs(config_dir, exist_ok=True)
 
-# Source config files
+# Source config files - using relative paths for better portability
 original_eval_config = os.path.join(matanyone_path, "matanyone", "config", "eval_matanyone_config.yaml")
 original_base_config = os.path.join(matanyone_path, "matanyone", "config", "model", "base.yaml")
 

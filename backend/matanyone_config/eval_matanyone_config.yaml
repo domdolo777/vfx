@@ -11,4 +11,4 @@ model:
 pixel_encoder:
   name: vit_b
   pretrained: true
-weights: /Users/dolo/vfx/MatAnyone/pretrained_models/matanyone.pth
+weights: ../MatAnyone/pretrained_models/matanyone.pth
