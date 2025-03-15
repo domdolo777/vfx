@@ -46,6 +46,13 @@ source venv/bin/activate  # On Windows: venv\Scripts\activate
 
 ```bash
 pip install -r requirements.txt
+
+# Install PyTorch with CUDA support (if using GPU)
+pip install torch torchvision --index-url https://download.pytorch.org/whl/cu118
+
+# Install additional dependencies
+pip install einops hydra-core easydict omegaconf
+pip install huggingface_hub transformers timm  # Required for MatAnyone
 ```
 
 3. Download the MatAnyone model:
