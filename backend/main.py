@@ -350,9 +350,20 @@ async def track_objects(request: TrackingRequest, req: Request = None):
         if not initial_masks:
             continue
         
-        # Get the initial frame index (assuming mask filename format: object_id_frameindex.png)
+        # Get the initial frame index (assuming mask filename format: {object_id}_{frame_index}.png)
         initial_mask_file = sorted(initial_masks)[0]
-        initial_frame_index = int(initial_mask_file.split("_")[1].split(".")[0])
+        
+        # Extract the frame index from the last part of the filename
+        # Format is obj_<unique_id>_<frame_index>.png
+        try:
+            # Get the last part after the last underscore before the extension
+            frame_index_str = initial_mask_file.rsplit('_', 1)[1].split('.')[0]
+            initial_frame_index = int(frame_index_str)
+            print(f"Found initial mask for {object_id} at frame index {initial_frame_index}")
+        except (ValueError, IndexError) as e:
+            print(f"Error parsing frame index from {initial_mask_file}: {e}")
+            print("Using frame index 0 as fallback")
+            initial_frame_index = 0
         
         # Load the initial mask
         initial_mask_path = os.path.join(masks_dir, initial_mask_file)
