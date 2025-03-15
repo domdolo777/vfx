@@ -59,6 +59,8 @@ const SegmentationMode = () => {
     const fetchVideoInfo = async () => {
       try {
         const response = await axios.get(`${config.apiUrl}/video-frames/${videoId}?start=0&count=30`);
+        console.log("API Response:", response.data);
+        console.log("First frame URL:", response.data.frames[0].url);
         setVideoInfo({
           videoId: response.data.video_id,
           totalFrames: response.data.total_frames
@@ -160,8 +162,9 @@ const SegmentationMode = () => {
         ? frameUrl 
         : `${config.apiUrl}${frameUrl}`;
       
-      console.log('Loading frame', currentFrameIndex, 'from', frameUrl);
-      console.log('Full URL:', fullUrl);
+      console.log('Frame URL from API:', frameUrl);
+      console.log('Config API URL:', config.apiUrl);
+      console.log('Full URL constructed:', fullUrl);
       
       const img = new Image();
       img.crossOrigin = "anonymous"; // Add cross-origin attribute
