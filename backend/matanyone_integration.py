@@ -414,46 +414,40 @@ class MatAnyoneWrapper:
             # Convert the mask to a binary mask if it's not already
             binary_mask = np.where(first_frame_mask > 127, 255, 0).astype(np.uint8)
             
-            # Process frames in order
-            # We need to normalize frames for MatAnyone
-            frame_tensors = []
-            for frame in frames:
-                # Convert to RGB and normalize
-                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
-                frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
-                frame_tensor = frame_tensor.to(self.device)
-                frame_tensors.append(frame_tensor)
-            
-            # Convert mask to tensor
-            mask_tensor = torch.from_numpy(binary_mask).float().to(self.device) / 255.0
+            # Clear any previous tracking state by clearing memory
+            self.processor.clear_memory()
             
             # Record the result for initial frame
             result[initial_frame_index] = binary_mask
             
-            # Start with the initial frame - this initializes the processor with our mask
-            objects = [1]  # Single object
+            # Convert mask to tensor - MatAnyone expects a float tensor normalized to [0,1]
+            mask_tensor = torch.from_numpy(binary_mask).float().to(self.device) / 255.0
             
-            # Reset the processor state to start fresh
-            self.processor.reset()
-                
-            # First, process the initial frame with the mask
+            # Process the initial frame with the mask
             print(f"Initializing tracking with frame {initial_frame_index}")
-            try:
-                # Initialize with mask on the first frame
-                output_prob = self.processor.step(
-                    frame_tensors[initial_frame_index],
-                    mask_tensor,
-                    objects=objects
-                )
-            except Exception as e:
-                print(f"Error initializing tracking: {e}")
-                return self._track_with_optical_flow(frames, first_frame_mask, initial_frame_index)
             
-            # Now track forward from the initial frame
-            for i in range(initial_frame_index + 1, len(frames)):
+            # Process frames in sequence from initial frame to end
+            for i in range(len(frames)):
+                frame = frames[i]
+                
+                # Convert to RGB and normalize
+                frame_rgb = cv2.cvtColor(frame, cv2.COLOR_BGR2RGB)
+                frame_tensor = torch.from_numpy(frame_rgb).permute(2, 0, 1).float() / 255.0
+                frame_tensor = frame_tensor.to(self.device)
+                
                 try:
-                    # Process the next frame
-                    output_prob = self.processor.step(frame_tensors[i])
+                    if i == initial_frame_index:
+                        # Initialize with mask on the first frame
+                        # The step method expects [C, H, W] for image and [H, W] for mask
+                        output_prob = self.processor.step(
+                            frame_tensor,
+                            mask_tensor,
+                            objects=[1],  # Single object with ID 1
+                            first_frame_pred=(i == initial_frame_index)  # Indicate this is the first frame
+                        )
+                    else:
+                        # For subsequent frames, just pass the frame
+                        output_prob = self.processor.step(frame_tensor)
                     
                     # Convert output probability to mask
                     result_mask = self.processor.output_prob_to_mask(output_prob)
@@ -466,102 +460,101 @@ class MatAnyoneWrapper:
                     
                     # Store the result
                     result[i] = mask_binary
-                    print(f"Tracked to frame {i} successfully")
+                    
+                    if i > initial_frame_index:
+                        print(f"Tracked to frame {i} successfully")
                     
                 except Exception as e:
-                    print(f"Error tracking to frame {i}: {e}")
-                    # If tracking fails, use optical flow for the rest
-                    remaining_frames = frames[i:]
-                    optical_flow_results = self._track_with_optical_flow(
-                        remaining_frames, 
-                        result[i-1] if i-1 in result else first_frame_mask,
-                        0  # Start from the first frame in the remaining frames
-                    )
-                    
-                    # Merge the results
-                    for j, frame_idx in enumerate(range(i, len(frames))):
-                        if j in optical_flow_results:
-                            result[frame_idx] = optical_flow_results[j]
-                    
-                    # Stop the loop as we've handled the remaining frames
-                    break
-            
-            # Now track backward from the initial frame if needed
-            if initial_frame_index > 0:
-                # Reset the processor for backward tracking
-                self.processor.reset()
-                
-                # Initialize with the initial frame and mask again
-                try:
-                    output_prob = self.processor.step(
-                        frame_tensors[initial_frame_index],
-                        mask_tensor,
-                        objects=objects
-                    )
-                except Exception as e:
-                    print(f"Error initializing backward tracking: {e}")
-                    # Use optical flow for backward frames
-                    backward_frames = frames[:initial_frame_index+1]
-                    backward_frames.reverse()  # Reverse to track backward
-                    optical_flow_results = self._track_with_optical_flow(
-                        backward_frames,
-                        first_frame_mask,
-                        0  # Initial frame is now at index 0 in the reversed list
-                    )
-                    
-                    # Merge the results, adjusting indices
-                    for j in range(initial_frame_index):
-                        if initial_frame_index-j-1 in optical_flow_results:
-                            result[j] = optical_flow_results[initial_frame_index-j-1]
-                    
-                    return result
-                
-                # Track backward
-                for i in range(initial_frame_index - 1, -1, -1):
-                    try:
-                        # Process the previous frame
-                        output_prob = self.processor.step(frame_tensors[i])
+                    print(f"Error tracking frame {i}: {e}")
+                    # If tracking fails, use optical flow for this frame
+                    if i not in result:
+                        # If we couldn't track this frame, use optical flow from previous frame
+                        prev_frame_idx = max(j for j in result.keys() if j < i) if any(j < i for j in result.keys()) else initial_frame_index
+                        prev_mask = result[prev_frame_idx]
                         
-                        # Convert output probability to mask
-                        result_mask = self.processor.output_prob_to_mask(output_prob)
-                        
-                        # Convert tensor to numpy array
-                        mask_np = result_mask.cpu().numpy()
-                        
-                        # Ensure mask is binary (0 or 255)
-                        mask_binary = np.where(mask_np > 0.5, 255, 0).astype(np.uint8)
-                        
-                        # Store the result
-                        result[i] = mask_binary
-                        print(f"Tracked back to frame {i} successfully")
-                        
-                    except Exception as e:
-                        print(f"Error tracking back to frame {i}: {e}")
-                        # If tracking fails, use optical flow for the remaining backward frames
-                        backward_frames = frames[:i+1]
-                        backward_frames.reverse()  # Reverse to track backward
-                        optical_flow_results = self._track_with_optical_flow(
-                            backward_frames,
-                            result[i+1] if i+1 in result else first_frame_mask,
-                            0  # Initial frame is now at index 0 in the reversed list
+                        # Use optical flow to track from previous frame to current
+                        optical_flow_result = self._track_single_frame_with_optical_flow(
+                            frames[prev_frame_idx], 
+                            frames[i],
+                            prev_mask
                         )
                         
-                        # Merge the results, adjusting indices
-                        for j in range(i+1):
-                            if i-j in optical_flow_results:
-                                result[j] = optical_flow_results[i-j]
-                        
-                        # Stop the loop as we've handled the remaining backward frames
-                        break
+                        result[i] = optical_flow_result
             
             return result
-        
+            
         except Exception as e:
             print(f"Error in MatAnyone tracking: {e}")
             import traceback
             traceback.print_exc()
             print("Falling back to optical flow tracking")
             return self._track_with_optical_flow(frames, first_frame_mask, initial_frame_index)
+
+    def _track_single_frame_with_optical_flow(self, prev_frame: np.ndarray, curr_frame: np.ndarray, prev_mask: np.ndarray) -> np.ndarray:
+        """
+        Track a single frame using optical flow
+        
+        Args:
+            prev_frame: Previous frame
+            curr_frame: Current frame
+            prev_mask: Previous mask
+            
+        Returns:
+            Tracked mask for current frame
+        """
+        # Convert frames to grayscale for optical flow
+        prev_gray = cv2.cvtColor(prev_frame, cv2.COLOR_BGR2GRAY)
+        curr_gray = cv2.cvtColor(curr_frame, cv2.COLOR_BGR2GRAY)
+        
+        # Find contours in the mask to get points to track
+        contours, _ = cv2.findContours(prev_mask, cv2.RETR_EXTERNAL, cv2.CHAIN_APPROX_SIMPLE)
+        
+        # If no contours found, return the original mask
+        if not contours:
+            print("No contours found in mask, using previous mask")
+            return prev_mask.copy()
+        
+        # Sample points from within the mask for tracking
+        mask_indices = np.where(prev_mask > 0)
+        
+        # If mask is empty, return the previous mask
+        if len(mask_indices[0]) == 0:
+            print("Empty mask, using previous mask")
+            return prev_mask.copy()
+        
+        # Sample up to 100 points from the mask
+        max_points = min(100, len(mask_indices[0]))
+        sample_indices = np.random.choice(len(mask_indices[0]), max_points, replace=False)
+        
+        # Create points array for optical flow
+        points = np.array([[mask_indices[1][i], mask_indices[0][i]] for i in sample_indices], dtype=np.float32)
+        points = points.reshape(-1, 1, 2)
+        
+        # Calculate optical flow
+        new_points, status, _ = cv2.calcOpticalFlowPyrLK(prev_gray, curr_gray, points, None)
+        
+        # If no points were tracked successfully, use the previous mask
+        if new_points is None or np.sum(status) == 0:
+            print("No points tracked, using previous mask")
+            return prev_mask.copy()
+        
+        # Select good points
+        good_old = points[status == 1]
+        good_new = new_points[status == 1]
+        
+        if len(good_old) == 0 or len(good_new) == 0:
+            print("No good points, using previous mask")
+            return prev_mask.copy()
+        
+        # Calculate the average movement of all tracked points
+        dx = np.mean(good_new[:, 0, 0] - good_old[:, 0, 0])
+        dy = np.mean(good_new[:, 0, 1] - good_old[:, 0, 1])
+        
+        # Apply translation to the mask
+        M = np.float32([[1, 0, dx], [0, 1, dy]])
+        result_mask = cv2.warpAffine(prev_mask, M, (prev_mask.shape[1], prev_mask.shape[0]))
+        
+        return result_mask
 
     def _track_with_optical_flow(self, frames: List[np.ndarray], first_frame_mask: np.ndarray, initial_frame_index: int = 0) -> Dict[int, np.ndarray]:
         """
