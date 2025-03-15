@@ -55,7 +55,70 @@ def get_base_url(request: Request) -> str:
     """Get the base URL for static files based on the request"""
     host = request.headers.get("host", "localhost:8000")
     scheme = request.headers.get("x-forwarded-proto", "http")
-    return f"{scheme}://{host}"
+    
+    # Debug headers
+    print("\n--- Request Headers ---")
+    for key, value in request.headers.items():
+        print(f"{key}: {value}")
+    print("--- End Headers ---\n")
+    
+    # Check if we're running in a RunPod environment (using internal IPs like 100.65.x.x)
+    if host.startswith("100.65.") or ":" in host:
+        # Extract the original host from X-Forwarded-Host or referer
+        forwarded_host = request.headers.get("x-forwarded-host")
+        if forwarded_host:
+            result_url = f"https://{forwarded_host}"
+            print(f"Using forwarded host: {result_url}")
+            return result_url
+            
+        # Try to extract from referer
+        referer = request.headers.get("referer")
+        if referer and "proxy.runpod.net" in referer:
+            # Extract the runpod public URL from the referer
+            parts = referer.split("/")
+            if len(parts) >= 3:
+                runpod_host = parts[2]
+                # Replace port 3000 with 8000 for the API
+                result_url = f"https://{runpod_host.replace('-3000', '-8000')}"
+                print(f"Using runpod host from referer: {result_url}")
+                return result_url
+        
+        # If we're in RunPod but couldn't extract the proper host, try using origin header
+        origin = request.headers.get("origin")
+        if origin and "proxy.runpod.net" in origin:
+            origin_parts = origin.split("/")
+            if len(origin_parts) >= 3:
+                runpod_host = origin_parts[2]
+                # Replace port 3000 with 8000 for the API
+                result_url = f"https://{runpod_host.replace('-3000', '-8000')}"
+                print(f"Using runpod host from origin: {result_url}")
+                return result_url
+                
+        # If all else fails, try to construct the public URL based on environment-specific knowledge
+        # We know we're in a RunPod environment, so assume port 8000 for the API
+        if "RUNPOD_POD_ID" in os.environ:
+            pod_id = os.environ.get("RUNPOD_POD_ID", "")
+            if pod_id:
+                result_url = f"https://{pod_id}-8000.proxy.runpod.net"
+                print(f"Using constructed runpod URL: {result_url}")
+                return result_url
+        
+        # Known specific host - if we detect the internal IP but can't get the proper host from headers
+        # We'll use this specific host that we know about (from the logs)
+        if "ga1onjwgr7aypb" in os.environ.get("HOSTNAME", ""):
+            result_url = "https://ga1onjwgr7aypb-8000.proxy.runpod.net"
+            print(f"Using known specific runpod host: {result_url}")
+            return result_url
+            
+        # Hardcoded fallback for this specific deployment
+        result_url = "https://ga1onjwgr7aypb-8000.proxy.runpod.net"
+        print(f"Using hardcoded runpod fallback: {result_url}")
+        return result_url
+    
+    # Default to the normal host/scheme
+    result_url = f"{scheme}://{host}"
+    print(f"Using default host: {result_url}")
+    return result_url
 
 @app.get("/")
 async def root():
