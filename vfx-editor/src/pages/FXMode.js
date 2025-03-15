@@ -197,247 +197,325 @@ const FXMode = () => {
 
   // Draw the current frame on the canvas
   useEffect(() => {
-    if (frames.length > 0 && currentFrameIndex < frames.length) {
-      const frameUrl = frames[currentFrameIndex].url;
-      const fullUrl = frameUrl.startsWith('http') 
-        ? frameUrl 
-        : `${config.apiUrl}${frameUrl}`;
-      
-      console.log('Loading frame', currentFrameIndex, 'from', fullUrl);
-      
-      const img = new Image();
-      img.crossOrigin = "anonymous"; // Critical for CORS handling
-      img.src = fullUrl;
-      
-      img.onload = () => {
-        console.log('Frame loaded successfully:', fullUrl);
-        const canvas = canvasRef.current;
-        if (canvas) {
-          const ctx = canvas.getContext('2d');
-          canvas.width = img.width;
-          canvas.height = img.height;
+    const renderFrame = async () => {
+      try {
+        if (frames.length > 0 && currentFrameIndex < frames.length) {
+          const frameUrl = frames[currentFrameIndex].url;
+          const fullUrl = frameUrl.startsWith('http') 
+            ? frameUrl 
+            : `${config.apiUrl}${frameUrl}`;
           
-          // Clear the canvas first
-          ctx.clearRect(0, 0, canvas.width, canvas.height);
+          console.log('Loading frame', currentFrameIndex, 'from', fullUrl);
           
-          // Draw the base frame
-          ctx.drawImage(img, 0, 0);
+          const img = new Image();
+          img.crossOrigin = "anonymous"; // Critical for CORS handling
+          img.src = fullUrl;
           
-          // Debug log the objects
-          console.log('Objects to draw:', objects);
+          // Force debug flag for testing
+          const DEBUG_MASKS = true;
           
-          // Draw masks and effects for the current frame
-          if (objects && objects.length > 0) {
-            objects.forEach((object, index) => {
-              console.log(`Processing object ${index}:`, object);
-              
-              if (object.visible && object.masks) {
-                // Check if we have a mask for this frame
-                const maskUrl = object.masks[currentFrameIndex];
-                if (!maskUrl) {
-                  console.log(`No mask found for object ${object.id} at frame ${currentFrameIndex}`);
-                  return; // Skip this object
-                }
-                
-                const fullMaskUrl = maskUrl.startsWith('http') 
-                  ? maskUrl 
-                  : `${config.apiUrl}${maskUrl}`;
-                
-                console.log('Loading mask for object', index, 'from', fullMaskUrl);
-                
-                // Debug: Check if the mask URL is accessible
-                fetch(fullMaskUrl, { method: 'HEAD' })
-                  .then(response => {
-                    console.log(`Mask URL ${fullMaskUrl} status: ${response.status}`);
-                  })
-                  .catch(error => {
-                    console.error(`Error checking mask URL ${fullMaskUrl}:`, error);
-                  });
-                
-                const maskImg = new Image();
-                maskImg.crossOrigin = "anonymous"; // Critical for CORS handling
-                maskImg.src = fullMaskUrl;
-                
-                maskImg.onload = () => {
-                  console.log('Mask loaded successfully:', fullMaskUrl);
-                  
-                  // Create a temporary canvas for the mask
-                  const tempCanvas = document.createElement('canvas');
-                  tempCanvas.width = canvas.width;
-                  tempCanvas.height = canvas.height;
-                  const tempCtx = tempCanvas.getContext('2d');
-                  
-                  // Draw the mask on the temporary canvas
-                  tempCtx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
-                  
-                  // Get the mask data
-                  const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
-                  
-                  // Debug: Log mask data stats
-                  let nonZeroPixels = 0;
-                  for (let i = 0; i < maskData.data.length; i += 4) {
-                    if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || 
-                        maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
-                      nonZeroPixels++;
+          img.onload = () => {
+            console.log('Frame loaded successfully:', fullUrl);
+            const canvas = canvasRef.current;
+            if (!canvas) return;
+            
+            const ctx = canvas.getContext('2d');
+            canvas.width = img.width;
+            canvas.height = img.height;
+            
+            // Clear the canvas first
+            ctx.clearRect(0, 0, canvas.width, canvas.height);
+            
+            // Draw the base frame
+            ctx.drawImage(img, 0, 0);
+            
+            // Debug log the objects
+            console.log('Objects to draw:', objects);
+            
+            // Draw debug info on canvas
+            if (DEBUG_MASKS) {
+              ctx.font = '20px Arial';
+              ctx.fillStyle = 'white';
+              ctx.fillText(`Frame: ${currentFrameIndex}`, 20, 30);
+              ctx.fillText(`Objects: ${objects ? objects.length : 0}`, 20, 60);
+              if (objects && objects.length > 0) {
+                objects.forEach((obj, i) => {
+                  ctx.fillText(`Object ${i+1}: ${obj.id} - Visible: ${obj.visible}`, 20, 90 + i * 30);
+                  ctx.fillText(`  Has mask for current frame: ${obj.masks && obj.masks[currentFrameIndex] ? 'YES' : 'NO'}`, 40, 120 + i * 30);
+                });
+              }
+            }
+            
+            // Draw masks and effects for the current frame
+            if (objects && objects.length > 0) {
+              // We'll use Promise.all to wait for all mask loading operations
+              const maskPromises = objects.map((object, index) => {
+                return new Promise(async (resolve) => {
+                  try {
+                    console.log(`Processing object ${index}:`, object);
+                    
+                    if (!object.visible || !object.masks) {
+                      console.log(`Object ${object.id} is not visible or has no masks`);
+                      return resolve();
                     }
-                  }
-                  console.log(`Mask has ${nonZeroPixels} non-zero pixels out of ${maskData.data.length/4} total pixels`);
-                  
-                  // Create a colored version of the mask
-                  const coloredMaskData = new ImageData(canvas.width, canvas.height);
-                  const objectColor = objectColors[index % objectColors.length];
-                  
-                  // Parse the hex color to RGB
-                  const r = parseInt(objectColor.slice(1, 3), 16);
-                  const g = parseInt(objectColor.slice(3, 5), 16);
-                  const b = parseInt(objectColor.slice(5, 7), 16);
-                  
-                  console.log(`Using color ${objectColor} (${r},${g},${b}) for object ${object.id}`);
-                  
-                  // Apply the color to the mask with the global opacity setting
-                  for (let i = 0; i < maskData.data.length; i += 4) {
-                    // Check if ANY channel has a value (not just the first one)
-                    if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
-                      coloredMaskData.data[i] = r;     // R
-                      coloredMaskData.data[i + 1] = g; // G
-                      coloredMaskData.data[i + 2] = b; // B
-                      coloredMaskData.data[i + 3] = Math.round(255 * (globalParams.maskOpacity / 100)); // Alpha based on global setting
+                    
+                    // Check if we have a mask for this frame
+                    const maskUrl = object.masks[currentFrameIndex];
+                    if (!maskUrl) {
+                      console.log(`No mask found for object ${object.id} at frame ${currentFrameIndex}`);
+                      return resolve();
                     }
-                  }
-                  
-                  // Put the colored mask back on the temporary canvas
-                  tempCtx.putImageData(coloredMaskData, 0, 0);
-                  
-                  // Draw the colored mask on the main canvas
-                  ctx.save();
-                  ctx.globalCompositeOperation = 'source-over';
-                  ctx.drawImage(tempCanvas, 0, 0);
-                  ctx.restore();
-                  
-                  console.log(`Mask for object ${object.id} drawn successfully`);
-                  
-                  // If this object has effects, draw them
-                  if (object.effects) {
-                    Object.entries(object.effects).forEach(([effectType, effectFrames]) => {
-                      if (effectFrames && effectFrames[currentFrameIndex]) {
-                        const effectUrl = effectFrames[currentFrameIndex];
-                        const fullEffectUrl = effectUrl.startsWith('http') 
-                          ? effectUrl 
-                          : `${config.apiUrl}${effectUrl}`;
+                    
+                    const fullMaskUrl = maskUrl.startsWith('http') 
+                      ? maskUrl 
+                      : `${config.apiUrl}${maskUrl}`;
+                    
+                    console.log('Loading mask for object', index, 'from', fullMaskUrl);
+                    
+                    try {
+                      // Check if mask exists via fetch HEAD request
+                      const checkResponse = await fetch(fullMaskUrl, { method: 'HEAD' });
+                      console.log(`Mask URL ${fullMaskUrl} status: ${checkResponse.status}`);
+                      
+                      if (checkResponse.status !== 200) {
+                        throw new Error(`Mask not found: ${checkResponse.status}`);
+                      }
+                    } catch (e) {
+                      console.error(`Error checking mask URL: ${e.message}`);
+                    }
+                    
+                    const maskImg = new Image();
+                    maskImg.crossOrigin = "anonymous"; // Critical for CORS handling
+                    
+                    // Set up onload handler before setting src
+                    maskImg.onload = () => {
+                      console.log('Mask loaded successfully:', fullMaskUrl);
+                      
+                      // Create a temporary canvas for the mask
+                      const tempCanvas = document.createElement('canvas');
+                      tempCanvas.width = canvas.width;
+                      tempCanvas.height = canvas.height;
+                      const tempCtx = tempCanvas.getContext('2d');
+                      
+                      // Draw the mask on the temporary canvas
+                      tempCtx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
+                      
+                      // Get the mask data
+                      const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+                      
+                      // Debug: Log mask data stats
+                      let nonZeroPixels = 0;
+                      for (let i = 0; i < maskData.data.length; i += 4) {
+                        if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || 
+                            maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
+                          nonZeroPixels++;
+                        }
+                      }
+                      console.log(`Mask has ${nonZeroPixels} non-zero pixels out of ${maskData.data.length/4} total pixels`);
+                      
+                      // Create a colored version of the mask
+                      const coloredMaskData = new ImageData(canvas.width, canvas.height);
+                      const objectColor = objectColors[index % objectColors.length];
+                      
+                      // Parse the hex color to RGB
+                      const r = parseInt(objectColor.slice(1, 3), 16);
+                      const g = parseInt(objectColor.slice(3, 5), 16);
+                      const b = parseInt(objectColor.slice(5, 7), 16);
+                      
+                      console.log(`Using color ${objectColor} (${r},${g},${b}) for object ${object.id}`);
+                      
+                      // Apply the color to the mask with the global opacity setting
+                      // For debugging, use high opacity to make mask clearly visible
+                      const opacity = DEBUG_MASKS ? 0.9 : (globalParams.maskOpacity / 100);
+                      
+                      for (let i = 0; i < maskData.data.length; i += 4) {
+                        // Check if ANY channel has a value (not just the first one)
+                        if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || 
+                            maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
+                          coloredMaskData.data[i] = r;     // R
+                          coloredMaskData.data[i + 1] = g; // G
+                          coloredMaskData.data[i + 2] = b; // B
+                          coloredMaskData.data[i + 3] = Math.round(255 * opacity); // Alpha based on global setting or debug value
+                        }
+                      }
+                      
+                      // If debug and no nonZeroPixels, add a visible square for debugging
+                      if (DEBUG_MASKS && nonZeroPixels < 10) {
+                        console.log("WARNING: Mask has very few non-zero pixels, adding debug rectangle");
+                        // Add a visible rectangle to show the mask location
+                        const centerX = Math.floor(canvas.width / 2);
+                        const centerY = Math.floor(canvas.height / 2);
+                        const size = 100;
                         
-                        console.log('Loading effect', effectType, 'from', fullEffectUrl);
+                        for (let y = centerY - size/2; y < centerY + size/2; y++) {
+                          for (let x = centerX - size/2; x < centerX + size/2; x++) {
+                            const i = (y * canvas.width + x) * 4;
+                            coloredMaskData.data[i] = r;
+                            coloredMaskData.data[i + 1] = g;
+                            coloredMaskData.data[i + 2] = b;
+                            coloredMaskData.data[i + 3] = 200; // Semi-transparent
+                          }
+                        }
+                      }
+                      
+                      // Put the colored mask back on the temporary canvas
+                      tempCtx.putImageData(coloredMaskData, 0, 0);
+                      
+                      // Draw the colored mask on the main canvas
+                      ctx.save();
+                      ctx.globalCompositeOperation = 'source-over';
+                      ctx.drawImage(tempCanvas, 0, 0);
+                      ctx.restore();
+                      
+                      console.log(`Mask for object ${object.id} drawn successfully`);
+                      resolve();
+                    };
+                    
+                    maskImg.onerror = async (e) => {
+                      console.error('Failed to load mask image:', fullMaskUrl, e);
+                      
+                      // Try an alternative URL format as fallback
+                      const altMaskUrl = `${config.apiUrl}/uploads/${videoId}/tracks/${object.id}_${currentFrameIndex.toString().padStart(5, '0')}.png`;
+                      console.log('Trying alternative mask URL:', altMaskUrl);
+                      
+                      try {
+                        // Check if alt mask exists
+                        const altCheckResponse = await fetch(altMaskUrl, { method: 'HEAD' });
+                        console.log(`Alternative mask URL ${altMaskUrl} status: ${altCheckResponse.status}`);
                         
-                        const effectImg = new Image();
-                        effectImg.crossOrigin = "anonymous"; // Critical for CORS handling
-                        effectImg.src = fullEffectUrl;
-                        
-                        effectImg.onload = () => {
-                          console.log('Effect loaded successfully:', fullEffectUrl);
+                        if (altCheckResponse.status !== 200) {
+                          // Try one more format
+                          const alt2MaskUrl = `${config.apiUrl}/uploads/${videoId}/masks/${object.id}_${currentFrameIndex.toString().padStart(5, '0')}.png`;
+                          console.log('Trying second alternative mask URL:', alt2MaskUrl);
                           
-                          // Apply the effect with proper opacity
-                          ctx.save();
+                          const alt2CheckResponse = await fetch(alt2MaskUrl, { method: 'HEAD' });
+                          console.log(`Second alternative mask URL ${alt2MaskUrl} status: ${alt2CheckResponse.status}`);
                           
-                          // Apply the effect with the specified opacity
-                          ctx.globalAlpha = globalParams.fxOpacity / 100;
-                          
-                          // If invert is enabled, we need to apply the effect to the non-masked area
-                          if (globalParams.invertFX) {
-                            // First draw the effect over the entire canvas
-                            ctx.drawImage(effectImg, 0, 0);
-                            
-                            // Then use "destination-out" to remove the effect from the masked area
-                            ctx.globalCompositeOperation = 'destination-out';
-                            ctx.drawImage(maskImg, 0, 0);
+                          if (alt2CheckResponse.status !== 200) {
+                            throw new Error('All mask URLs failed');
                           } else {
-                            // Use the mask as a clipping path
-                            ctx.globalCompositeOperation = 'source-atop';
-                            ctx.drawImage(maskImg, 0, 0);
-                            ctx.globalCompositeOperation = 'source-over';
-                            ctx.drawImage(effectImg, 0, 0);
+                            loadAltMask(alt2MaskUrl);
+                          }
+                        } else {
+                          loadAltMask(altMaskUrl);
+                        }
+                      } catch (error) {
+                        console.error('All mask URLs failed:', error);
+                        
+                        if (DEBUG_MASKS) {
+                          // Draw a debug rectangle as a placeholder for the missing mask
+                          ctx.save();
+                          const objectColor = objectColors[index % objectColors.length];
+                          ctx.fillStyle = objectColor + '80'; // 50% opacity
+                          ctx.fillRect(50, 50 + index * 100, 200, 100);
+                          ctx.fillStyle = 'white';
+                          ctx.fillText(`Missing mask for ${object.id}`, 60, 100 + index * 100);
+                          ctx.restore();
+                        }
+                        
+                        resolve();
+                      }
+                      
+                      // Function to load and draw the alternative mask
+                      function loadAltMask(url) {
+                        const altMaskImg = new Image();
+                        altMaskImg.crossOrigin = "anonymous";
+                        
+                        altMaskImg.onload = () => {
+                          console.log('Alternative mask loaded successfully:', url);
+                          // Create a temporary canvas for the mask
+                          const tempCanvas = document.createElement('canvas');
+                          tempCanvas.width = canvas.width;
+                          tempCanvas.height = canvas.height;
+                          const tempCtx = tempCanvas.getContext('2d');
+                          
+                          // Draw the mask on the temporary canvas
+                          tempCtx.drawImage(altMaskImg, 0, 0, canvas.width, canvas.height);
+                          
+                          // Debug: draw the raw mask directly on canvas for visibility
+                          if (DEBUG_MASKS) {
+                            ctx.save();
+                            ctx.globalAlpha = 0.8;
+                            ctx.drawImage(altMaskImg, 0, 0, canvas.width, canvas.height);
+                            ctx.restore();
                           }
                           
+                          // Get the mask data
+                          const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
+                          
+                          // Create a colored version of the mask
+                          const coloredMaskData = new ImageData(canvas.width, canvas.height);
+                          const objectColor = objectColors[index % objectColors.length];
+                          
+                          // Parse the hex color to RGB
+                          const r = parseInt(objectColor.slice(1, 3), 16);
+                          const g = parseInt(objectColor.slice(3, 5), 16);
+                          const b = parseInt(objectColor.slice(5, 7), 16);
+                          
+                          // Apply the color to the mask with the global opacity setting
+                          const opacity = DEBUG_MASKS ? 0.9 : (globalParams.maskOpacity / 100);
+                          
+                          for (let i = 0; i < maskData.data.length; i += 4) {
+                            if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || 
+                                maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
+                              coloredMaskData.data[i] = r;     // R
+                              coloredMaskData.data[i + 1] = g; // G
+                              coloredMaskData.data[i + 2] = b; // B
+                              coloredMaskData.data[i + 3] = Math.round(255 * opacity); // Alpha with debug opacity
+                            }
+                          }
+                          
+                          // Put the colored mask back on the temporary canvas
+                          tempCtx.putImageData(coloredMaskData, 0, 0);
+                          
+                          // Draw the colored mask on the main canvas
+                          ctx.save();
+                          ctx.globalCompositeOperation = 'source-over';
+                          ctx.drawImage(tempCanvas, 0, 0);
                           ctx.restore();
+                          
+                          resolve();
                         };
                         
-                        effectImg.onerror = (e) => {
-                          console.error('Failed to load effect image:', fullEffectUrl, e);
+                        altMaskImg.onerror = () => {
+                          console.error('Failed to load alternative mask image:', url);
+                          resolve();
                         };
+                        
+                        altMaskImg.src = url;
                       }
-                    });
+                    };
+                    
+                    maskImg.src = fullMaskUrl;
+                  } catch (error) {
+                    console.error("Error processing object mask:", error);
+                    resolve();
                   }
-                };
-                
-                maskImg.onerror = (e) => {
-                  console.error('Failed to load mask image:', fullMaskUrl, e);
-                  
-                  // Try an alternative URL format as fallback
-                  const altMaskUrl = `${config.apiUrl}/uploads/${videoId}/masks/${object.id}_${currentFrameIndex.toString().padStart(5, '0')}.png`;
-                  console.log('Trying alternative mask URL:', altMaskUrl);
-                  
-                  const altMaskImg = new Image();
-                  altMaskImg.crossOrigin = "anonymous";
-                  altMaskImg.src = altMaskUrl;
-                  
-                  altMaskImg.onload = () => {
-                    console.log('Alternative mask loaded successfully:', altMaskUrl);
-                    // Draw the mask using the same code as above
-                    const tempCanvas = document.createElement('canvas');
-                    tempCanvas.width = canvas.width;
-                    tempCanvas.height = canvas.height;
-                    const tempCtx = tempCanvas.getContext('2d');
-                    
-                    tempCtx.drawImage(altMaskImg, 0, 0, canvas.width, canvas.height);
-                    
-                    // Get the mask data
-                    const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
-                    
-                    // Create a colored version of the mask
-                    const coloredMaskData = new ImageData(canvas.width, canvas.height);
-                    const objectColor = objectColors[index % objectColors.length];
-                    
-                    // Parse the hex color to RGB
-                    const r = parseInt(objectColor.slice(1, 3), 16);
-                    const g = parseInt(objectColor.slice(3, 5), 16);
-                    const b = parseInt(objectColor.slice(5, 7), 16);
-                    
-                    // Apply the color to the mask with the global opacity setting
-                    for (let i = 0; i < maskData.data.length; i += 4) {
-                      if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || maskData.data[i+2] > 0 || maskData.data[i+3] > 0) {
-                        coloredMaskData.data[i] = r;     // R
-                        coloredMaskData.data[i + 1] = g; // G
-                        coloredMaskData.data[i + 2] = b; // B
-                        coloredMaskData.data[i + 3] = Math.round(255 * (globalParams.maskOpacity / 100)); // Alpha based on global setting
-                      }
-                    }
-                    
-                    // Put the colored mask back on the temporary canvas
-                    tempCtx.putImageData(coloredMaskData, 0, 0);
-                    
-                    // Draw the colored mask on the main canvas
-                    ctx.save();
-                    ctx.globalCompositeOperation = 'source-over';
-                    ctx.drawImage(tempCanvas, 0, 0);
-                    ctx.restore();
-                  };
-                  
-                  altMaskImg.onerror = () => {
-                    console.error('Failed to load alternative mask image:', altMaskUrl);
-                  };
-                };
-              }
-            });
-          } else {
-            console.log('No objects to draw or objects are empty');
-          }
+                });
+              });
+              
+              // Wait for all masks to be processed before handling effects
+              Promise.all(maskPromises).then(() => {
+                console.log("All masks processed");
+                // Process effects if needed
+              });
+            } else {
+              console.log('No objects to draw or objects are empty');
+            }
+          };
+          
+          img.onerror = (e) => {
+            console.error('Failed to load frame image:', fullUrl, e);
+            setError('Failed to load frame');
+          };
         }
-      };
-      
-      img.onerror = (e) => {
-        console.error('Failed to load frame image:', fullUrl, e);
-        setError('Failed to load frame');
-      };
-    }
-  }, [frames, currentFrameIndex, objects, globalParams, objectColors]);
+      } catch (error) {
+        console.error("Error in renderFrame:", error);
+      }
+    };
+
+    renderFrame();
+  }, [frames, currentFrameIndex, objects, globalParams, objectColors, videoId, config.apiUrl]);
 
   // Load objects from segmentation mode
   useEffect(() => {
