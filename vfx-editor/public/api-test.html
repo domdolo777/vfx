@@ -1,0 +1,66 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>API Connection Test</title>
+    <style>
+        body { font-family: Arial, sans-serif; margin: 20px; }
+        .result { margin-top: 20px; padding: 10px; border: 1px solid #ccc; }
+        .success { color: green; }
+        .error { color: red; }
+    </style>
+</head>
+<body>
+    <h1>API Connection Test</h1>
+    
+    <div>
+        <label for="apiUrl">API URL:</label>
+        <input type="text" id="apiUrl" style="width: 400px;" />
+        <button onclick="testConnection()">Test Connection</button>
+    </div>
+    
+    <div class="result" id="result"></div>
+    
+    <script>
+        // Set default API URL based on current hostname
+        window.onload = function() {
+            const hostname = window.location.hostname;
+            console.log("Current hostname:", hostname);
+            
+            let apiUrl = 'http://localhost:8000';
+            if (hostname.includes('proxy.runpod.net')) {
+                apiUrl = `https://${hostname.replace('-3000', '-8000')}`;
+            }
+            
+            document.getElementById('apiUrl').value = apiUrl;
+        };
+        
+        async function testConnection() {
+            const apiUrl = document.getElementById('apiUrl').value;
+            const resultDiv = document.getElementById('result');
+            
+            resultDiv.innerHTML = `<p>Testing connection to: ${apiUrl}</p>`;
+            resultDiv.className = 'result';
+            
+            try {
+                const response = await fetch(`${apiUrl}/health-check`, {
+                    method: 'GET',
+                    headers: {
+                        'Content-Type': 'application/json'
+                    }
+                });
+                
+                if (response.ok) {
+                    const data = await response.json();
+                    resultDiv.innerHTML += `<p class="success">Connection successful!</p>`;
+                    resultDiv.innerHTML += `<pre>${JSON.stringify(data, null, 2)}</pre>`;
+                } else {
+                    resultDiv.innerHTML += `<p class="error">Connection failed with status: ${response.status}</p>`;
+                }
+            } catch (error) {
+                resultDiv.innerHTML += `<p class="error">Connection error: ${error.message}</p>`;
+                resultDiv.className = 'result error';
+            }
+        }
+    </script>
+</body>
+</html> 

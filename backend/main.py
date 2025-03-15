@@ -571,5 +571,10 @@ async def get_mask(video_id: str, mask_file: str):
     # Return the file with the correct content type
     return FileResponse(mask_path, media_type="image/png")
 
+@app.get("/health-check")
+async def health_check():
+    """Simple endpoint to check if the API is running"""
+    return {"status": "ok", "message": "API is running"}
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 

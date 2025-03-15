@@ -1,9 +1,9 @@
 // Configuration for API endpoints
 const config = {
-    // Base API URL - will detect environment
+    // Base API URL - hardcoded for RunPod
     apiUrl: process.env.REACT_APP_API_URL || 
-           (window.location.hostname.includes('runpod') 
-            ? `https://${window.location.hostname.replace('3000', '8000')}` 
+           (window.location.hostname.includes('proxy.runpod.net') 
+            ? `https://${window.location.hostname.replace('-3000', '-8000')}` 
             : 'http://localhost:8000'),
     
     // Endpoints
@@ -16,6 +16,8 @@ const config = {
     }
 };
 
+// Debug information
+console.log('Hostname:', window.location.hostname);
 console.log('Using API URL:', config.apiUrl);
 
 export default config; 
