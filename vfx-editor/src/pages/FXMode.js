@@ -206,7 +206,7 @@ const FXMode = () => {
       console.log('Loading frame', currentFrameIndex, 'from', fullUrl);
       
       const img = new Image();
-      img.crossOrigin = "anonymous"; // Add cross-origin attribute
+      img.crossOrigin = "anonymous";
       img.src = fullUrl;
       
       img.onload = () => {
@@ -216,92 +216,126 @@ const FXMode = () => {
           const ctx = canvas.getContext('2d');
           canvas.width = img.width;
           canvas.height = img.height;
+          ctx.clearRect(0, 0, canvas.width, canvas.height);
           ctx.drawImage(img, 0, 0);
           
+          // Debug log the objects
+          console.log('Objects to draw:', objects);
+          
           // Draw masks and effects for the current frame
-          objects.forEach((object, index) => {
-            if (object.visible && object.masks && object.masks[currentFrameIndex]) {
-              const maskUrl = object.masks[currentFrameIndex];
-              const fullMaskUrl = maskUrl.startsWith('http') 
-                ? maskUrl 
-                : `${config.apiUrl}${maskUrl}`;
+          if (objects && objects.length > 0) {
+            objects.forEach((object, index) => {
+              console.log(`Checking object ${index}:`, object);
               
-              console.log('Loading mask for object', index, 'from', fullMaskUrl);
-              
-              const maskImg = new Image();
-              maskImg.crossOrigin = "anonymous"; // Add cross-origin attribute
-              maskImg.src = fullMaskUrl;
-              
-              maskImg.onload = () => {
-                console.log('Mask loaded successfully:', fullMaskUrl);
-                // Apply the effect to the masked area
-                ctx.save();
-                ctx.globalAlpha = globalParams.maskOpacity / 100;
-                ctx.drawImage(maskImg, 0, 0);
-                ctx.restore();
+              if (object.visible && object.masks && object.masks[currentFrameIndex]) {
+                const maskUrl = object.masks[currentFrameIndex];
+                const fullMaskUrl = maskUrl.startsWith('http') 
+                  ? maskUrl 
+                  : `${config.apiUrl}${maskUrl}`;
                 
-                // If this object has effects, draw them
-                if (object.effects) {
-                  Object.entries(object.effects).forEach(([effectType, effectFrames]) => {
-                    if (effectFrames[currentFrameIndex]) {
-                      const effectUrl = effectFrames[currentFrameIndex];
-                      const fullEffectUrl = effectUrl.startsWith('http') 
-                        ? effectUrl 
-                        : `${config.apiUrl}${effectUrl}`;
-                      
-                      console.log('Loading effect', effectType, 'from', fullEffectUrl);
-                      
-                      const effectImg = new Image();
-                      effectImg.crossOrigin = "anonymous";
-                      effectImg.src = fullEffectUrl;
-                      
-                      effectImg.onload = () => {
-                        console.log('Effect loaded successfully:', fullEffectUrl);
-                        // Apply the effect with proper opacity
-                        ctx.save();
-                        
-                        // Apply the effect with the specified opacity
-                        ctx.globalAlpha = globalParams.fxOpacity / 100;
-                        
-                        // If invert is enabled, we need to apply the effect to the non-masked area
-                        if (globalParams.invertFX) {
-                          // First draw the effect over the entire canvas
-                          ctx.drawImage(effectImg, 0, 0);
-                          
-                          // Then use "destination-out" to remove the effect from the masked area
-                          ctx.globalCompositeOperation = 'destination-out';
-                          ctx.drawImage(maskImg, 0, 0);
-                        } else {
-                          // Normal mode: just draw the effect
-                          ctx.drawImage(effectImg, 0, 0);
-                        }
-                        
-                        ctx.restore();
-                      };
-                      
-                      effectImg.onerror = () => {
-                        console.error('Failed to load effect image:', fullEffectUrl);
-                      };
+                console.log('Loading mask for object', index, 'from', fullMaskUrl);
+                
+                const maskImg = new Image();
+                maskImg.crossOrigin = "anonymous";
+                maskImg.src = fullMaskUrl;
+                
+                maskImg.onload = () => {
+                  console.log('Mask loaded successfully:', fullMaskUrl);
+                  
+                  // Create a temporary canvas to process the mask
+                  const tempCanvas = document.createElement('canvas');
+                  tempCanvas.width = maskImg.width;
+                  tempCanvas.height = maskImg.height;
+                  const tempCtx = tempCanvas.getContext('2d');
+                  
+                  // Draw the mask on the temporary canvas
+                  tempCtx.drawImage(maskImg, 0, 0);
+                  
+                  // Get the mask data
+                  const maskData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                  
+                  // Create a colored version of the mask
+                  const coloredMaskData = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+                  const objectColor = objectColors[index % objectColors.length];
+                  
+                  // Parse the hex color to RGB
+                  const r = parseInt(objectColor.slice(1, 3), 16);
+                  const g = parseInt(objectColor.slice(3, 5), 16);
+                  const b = parseInt(objectColor.slice(5, 7), 16);
+                  
+                  // Apply the color to the mask with the global opacity setting
+                  for (let i = 0; i < maskData.data.length; i += 4) {
+                    if (maskData.data[i] > 0) { // If there's any value in the mask
+                      coloredMaskData.data[i] = r;     // R
+                      coloredMaskData.data[i + 1] = g; // G
+                      coloredMaskData.data[i + 2] = b; // B
+                      coloredMaskData.data[i + 3] = Math.round(255 * (globalParams.maskOpacity / 100)); // Alpha based on global setting
                     }
-                  });
-                }
-                
-                // Highlight the selected object
-                if (selectedObjectIndex === index) {
+                  }
+                  
+                  // Put the colored mask back on the temporary canvas
+                  tempCtx.putImageData(coloredMaskData, 0, 0);
+                  
+                  // Draw the colored mask on the main canvas
                   ctx.save();
-                  ctx.strokeStyle = objectColors[index % objectColors.length];
-                  ctx.lineWidth = 3;
-                  ctx.globalAlpha = 0.8;
-                  ctx.strokeRect(20, 20, canvas.width - 40, canvas.height - 40);
+                  ctx.drawImage(tempCanvas, 0, 0);
                   ctx.restore();
-                }
-              };
-              
-              maskImg.onerror = () => {
-                console.error('Failed to load mask image:', fullMaskUrl);
-              };
-            }
-          });
+                  
+                  // If this object has effects, draw them
+                  if (object.effects) {
+                    Object.entries(object.effects).forEach(([effectType, effectFrames]) => {
+                      if (effectFrames[currentFrameIndex]) {
+                        const effectUrl = effectFrames[currentFrameIndex];
+                        const fullEffectUrl = effectUrl.startsWith('http') 
+                          ? effectUrl 
+                          : `${config.apiUrl}${effectUrl}`;
+                        
+                        console.log('Loading effect', effectType, 'from', fullEffectUrl);
+                        
+                        const effectImg = new Image();
+                        effectImg.crossOrigin = "anonymous";
+                        effectImg.src = fullEffectUrl;
+                        
+                        effectImg.onload = () => {
+                          console.log('Effect loaded successfully:', fullEffectUrl);
+                          // Apply the effect with proper opacity
+                          ctx.save();
+                          
+                          // Apply the effect with the specified opacity
+                          ctx.globalAlpha = globalParams.fxOpacity / 100;
+                          
+                          // If invert is enabled, we need to apply the effect to the non-masked area
+                          if (globalParams.invertFX) {
+                            // First draw the effect over the entire canvas
+                            ctx.drawImage(effectImg, 0, 0);
+                            
+                            // Then use "destination-out" to remove the effect from the masked area
+                            ctx.globalCompositeOperation = 'destination-out';
+                            ctx.drawImage(maskImg, 0, 0);
+                          } else {
+                            // Normal mode: just draw the effect
+                            ctx.drawImage(effectImg, 0, 0);
+                          }
+                          
+                          ctx.restore();
+                        };
+                        
+                        effectImg.onerror = () => {
+                          console.error('Failed to load effect image:', fullEffectUrl);
+                        };
+                      }
+                    });
+                  }
+                };
+                
+                maskImg.onerror = () => {
+                  console.error('Failed to load mask image:', fullMaskUrl);
+                };
+              }
+            });
+          } else {
+            console.log('No objects to draw or objects are empty');
+          }
         }
       };
       
@@ -310,7 +344,7 @@ const FXMode = () => {
         setError('Failed to load frame');
       };
     }
-  }, [frames, currentFrameIndex, objects, selectedObjectIndex, globalParams]);
+  }, [frames, currentFrameIndex, objects, globalParams, objectColors]);
 
   // Load objects from segmentation mode
   useEffect(() => {

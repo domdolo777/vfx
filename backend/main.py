@@ -10,6 +10,7 @@ import uvicorn
 import cv2
 import numpy as np
 from pydantic import BaseModel
+import re
 
 # Import MatAnyone integration
 from matanyone_integration import matanyone_wrapper
@@ -774,43 +775,33 @@ async def list_masks(video_id: str, req: Request = None):
     # Group by object ID
     objects = {}
     for mask_file in mask_files:
-        parts = mask_file.split("_")
-        if len(parts) < 2:
-            continue
+        try:
+            # Extract object ID and frame index using regex
+            match = re.match(r'(obj_[a-zA-Z0-9_]+)_(\d+)\.png', mask_file)
             
-        # Extract object ID and frame index
-        # Format is typically obj_XXX_00000.png
-        object_id_parts = []
-        frame_index = None
-        
-        for part in parts:
-            if part.startswith("obj"):
-                object_id_parts.append(part)
-            elif part.isdigit() or (part.endswith(".png") and part[:-4].isdigit()):
-                # If this part is a digit or ends with .png and the part without .png is a digit
-                frame_index_str = part[:-4] if part.endswith(".png") else part
-                try:
-                    frame_index = int(frame_index_str)
-                except ValueError:
-                    continue
-        
-        # Skip if we couldn't parse the object ID or frame index
-        if not object_id_parts or frame_index is None:
-            continue
-            
-        # Combine object ID parts
-        object_id = "_".join(object_id_parts)
-        
-        # Create object entry if it doesn't exist
-        if object_id not in objects:
-            objects[object_id] = {
-                "id": object_id,
-                "masks": {}
-            }
-            
-        # Add mask URL to object
-        mask_url = f"{base_url}/uploads/{video_id}/masks/{mask_file}"
-        objects[object_id]["masks"][frame_index] = mask_url
+            if match:
+                object_id = match.group(1)  # obj_XXXXX
+                frame_index = int(match.group(2))  # 00000
+                
+                # Create object entry if it doesn't exist
+                if object_id not in objects:
+                    objects[object_id] = {
+                        "id": object_id,
+                        "masks": {}
+                    }
+                    
+                # Add mask URL to object
+                mask_url = f"{base_url}/uploads/{video_id}/masks/{mask_file}"
+                objects[object_id]["masks"][frame_index] = mask_url
+                
+                print(f"Added mask for object {object_id}, frame {frame_index}: {mask_url}")
+            else:
+                print(f"Warning: Could not parse mask filename: {mask_file}")
+        except Exception as e:
+            print(f"Error processing mask file {mask_file}: {e}")
+    
+    # Log what we're returning
+    print(f"Returning {len(objects)} objects with masks")
     
     return {
         "video_id": video_id,
@@ -860,6 +851,76 @@ async def get_console_log():
     return {
         "log": log_content
     }
+
+@app.get("/debug/mask-directory/{video_id}")
+async def debug_mask_directory(video_id: str):
+    """Debug endpoint to view the contents of a mask directory"""
+    masks_dir = os.path.join("uploads", video_id, "masks")
+    
+    if not os.path.exists(masks_dir):
+        return {
+            "status": "error",
+            "message": f"Mask directory not found: {masks_dir}",
+            "exists": False
+        }
+    
+    try:
+        # List all files in the masks directory
+        all_files = os.listdir(masks_dir)
+        mask_files = [f for f in all_files if f.endswith(".png")]
+        
+        # Get stats about each mask file
+        mask_stats = []
+        for mask_file in mask_files[:10]:  # Limit to 10 files for brevity
+            mask_path = os.path.join(masks_dir, mask_file)
+            if os.path.exists(mask_path):
+                try:
+                    # Get basic file info
+                    stats = os.stat(mask_path)
+                    size = stats.st_size
+                    
+                    # Try to read the mask as an image
+                    mask = cv2.imread(mask_path, cv2.IMREAD_UNCHANGED)
+                    if mask is not None:
+                        shape = mask.shape
+                        dtype = str(mask.dtype)
+                        min_val = mask.min()
+                        max_val = mask.max()
+                        
+                        mask_stats.append({
+                            "filename": mask_file,
+                            "size_bytes": size,
+                            "shape": shape,
+                            "dtype": dtype,
+                            "min_value": int(min_val),
+                            "max_value": int(max_val)
+                        })
+                    else:
+                        mask_stats.append({
+                            "filename": mask_file,
+                            "size_bytes": size,
+                            "error": "Failed to read as image"
+                        })
+                except Exception as e:
+                    mask_stats.append({
+                        "filename": mask_file,
+                        "error": str(e)
+                    })
+        
+        return {
+            "status": "ok",
+            "directory": masks_dir,
+            "exists": True,
+            "total_files": len(all_files),
+            "mask_files": len(mask_files),
+            "samples": mask_stats
+        }
+    except Exception as e:
+        return {
+            "status": "error",
+            "message": str(e),
+            "exists": True
+        }
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
