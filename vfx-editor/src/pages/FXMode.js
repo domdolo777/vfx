@@ -31,6 +31,7 @@ import MovieIcon from '@mui/icons-material/Movie';
 import VideocamIcon from '@mui/icons-material/Videocam';
 import SegmentIcon from '@mui/icons-material/Segment';
 import axios from 'axios';
+import config from '../config';
 
 const EFFECT_TYPES = [
   { id: 'blur', name: 'Blur', params: { amount: { default: 15, min: 1, max: 50, step: 1 } } },
@@ -146,7 +147,7 @@ const FXMode = () => {
   useEffect(() => {
     const fetchVideoInfo = async () => {
       try {
-        const response = await axios.get(`http://localhost:8000/video-frames/${videoId}?start=0&count=30`);
+        const response = await axios.get(`${config.apiUrl}/video-frames/${videoId}?start=0&count=30`);
         setVideoInfo({
           videoId: response.data.video_id,
           totalFrames: response.data.total_frames
@@ -186,7 +187,7 @@ const FXMode = () => {
   useEffect(() => {
     if (frames.length > 0 && currentFrameIndex < frames.length) {
       const img = new Image();
-      img.src = `http://localhost:8000${frames[currentFrameIndex].url}`;
+      img.src = `${config.apiUrl}${frames[currentFrameIndex].url}`;
       img.onload = () => {
         const canvas = canvasRef.current;
         if (canvas) {
@@ -199,7 +200,7 @@ const FXMode = () => {
           objects.forEach((object) => {
             if (object.visible && object.masks && object.masks[currentFrameIndex]) {
               const maskImg = new Image();
-              maskImg.src = `http://localhost:8000${object.masks[currentFrameIndex]}`;
+              maskImg.src = `${config.apiUrl}${object.masks[currentFrameIndex]}`;
               maskImg.onload = () => {
                 // Apply the effect to the masked area
                 if (object.effect) {
@@ -226,7 +227,7 @@ const FXMode = () => {
         // or pass them through state management (Redux, Context API, etc.)
         
         // For now, we'll simulate loading objects with their tracking masks
-        const response = await axios.get(`http://localhost:8000/video-frames/${videoId}?start=0&count=1`);
+        const response = await axios.get(`${config.apiUrl}/video-frames/${videoId}?start=0&count=1`);
         
         // Check if there are any tracked objects in the backend
         // This is just a placeholder - you would need to implement an endpoint to get objects
@@ -310,7 +311,7 @@ const FXMode = () => {
     setError('');
     
     try {
-      const response = await axios.post('http://localhost:8000/apply-effect', {
+      const response = await axios.post(`${config.apiUrl}/apply-effect`, {
         video_id: videoId,
         object_id: objects[selectedObjectIndex].id,
         effect_type: selectedEffect,
@@ -390,7 +391,7 @@ const FXMode = () => {
       formData.append('effect_types', effectTypes.join(','));
       formData.append('export_type', exportType);
       
-      const response = await axios.post('http://localhost:8000/export-video', formData, {
+      const response = await axios.post(`${config.apiUrl}/export-video`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
         },

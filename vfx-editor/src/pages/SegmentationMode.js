@@ -23,6 +23,7 @@ import ClearIcon from '@mui/icons-material/Clear';
 import TrackChangesIcon from '@mui/icons-material/TrackChanges';
 import MovieFilterIcon from '@mui/icons-material/MovieFilter';
 import axios from 'axios';
+import config from '../config';
 
 const SegmentationMode = () => {
   const { videoId } = useParams();
@@ -45,7 +46,7 @@ const SegmentationMode = () => {
   useEffect(() => {
     const fetchVideoInfo = async () => {
       try {
-        const response = await axios.get(`http://localhost:8000/video-frames/${videoId}?start=0&count=30`);
+        const response = await axios.get(`${config.apiUrl}/video-frames/${videoId}?start=0&count=30`);
         setVideoInfo({
           videoId: response.data.video_id,
           totalFrames: response.data.total_frames
@@ -297,7 +298,7 @@ const SegmentationMode = () => {
     
     try {
       console.log('Sending segmentation request with points:', points);
-      const response = await axios.post('http://localhost:8000/segment', {
+      const response = await axios.post(`${config.apiUrl}/segment`, {
         video_id: videoId,
         frame_index: currentFrameIndex,
         points: points,
@@ -345,7 +346,7 @@ const SegmentationMode = () => {
     setError('');
     
     try {
-      const response = await axios.post('http://localhost:8000/track', {
+      const response = await axios.post(`${config.apiUrl}/track`, {
         video_id: videoId,
         object_ids: objectsToTrack.map(obj => obj.id)
       });

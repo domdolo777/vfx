@@ -11,6 +11,7 @@ import {
 } from '@mui/material';
 import CloudUploadIcon from '@mui/icons-material/CloudUpload';
 import axios from 'axios';
+import config from '../config';
 
 const Home = () => {
   const navigate = useNavigate();
@@ -47,7 +48,8 @@ const Home = () => {
       // Add a timestamp to prevent caching issues
       const timestamp = new Date().getTime();
       
-      const response = await axios.post(`http://localhost:8000/upload-video?t=${timestamp}`, formData, {
+      console.log('Using API URL:', config.apiUrl);
+      const response = await axios.post(`${config.apiUrl}/upload-video?t=${timestamp}`, formData, {
         headers: {
           'Content-Type': 'multipart/form-data',
           'Accept': 'application/json',
