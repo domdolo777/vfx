@@ -762,22 +762,38 @@ async def options_export_video():
 async def list_masks(video_id: str, req: Request = None):
     """List all masks for a video, organized by object"""
     masks_dir = os.path.join("uploads", video_id, "masks")
+    tracks_dir = os.path.join("uploads", video_id, "tracks")
     
+    # Check if directories exist
     if not os.path.exists(masks_dir):
+        print(f"Mask directory not found: {masks_dir}")
         raise HTTPException(status_code=404, detail="Video or masks not found")
     
     # Get base URL for static files
     base_url = get_base_url(req)
+    print(f"Using base URL: {base_url}")
     
-    # Get all mask files
-    mask_files = [f for f in os.listdir(masks_dir) if f.endswith(".png")]
+    # Get all mask files from both masks and tracks directories
+    mask_files = []
+    if os.path.exists(masks_dir):
+        mask_files.extend([os.path.join("masks", f) for f in os.listdir(masks_dir) if f.endswith(".png")])
+    
+    if os.path.exists(tracks_dir):
+        mask_files.extend([os.path.join("tracks", f) for f in os.listdir(tracks_dir) if f.endswith(".png")])
+    
+    print(f"Found {len(mask_files)} mask files")
     
     # Group by object ID
     objects = {}
-    for mask_file in mask_files:
+    for mask_file_path in mask_files:
         try:
+            # Extract the filename from the path
+            mask_file = os.path.basename(mask_file_path)
+            mask_dir = os.path.dirname(mask_file_path)
+            
             # Extract object ID and frame index using regex
-            match = re.match(r'(obj_[a-zA-Z0-9_]+)_(\d+)\.png', mask_file)
+            # Support both formats: obj_XXXXX_00000.png and obj_XXXXX_n_00000.png
+            match = re.match(r'(obj_[a-zA-Z0-9_]+)(?:_n)?_(\d+)\.png', mask_file)
             
             if match:
                 object_id = match.group(1)  # obj_XXXXX
@@ -787,21 +803,24 @@ async def list_masks(video_id: str, req: Request = None):
                 if object_id not in objects:
                     objects[object_id] = {
                         "id": object_id,
+                        "name": f"Object {len(objects) + 1}",
                         "masks": {}
                     }
                     
                 # Add mask URL to object
-                mask_url = f"{base_url}/uploads/{video_id}/masks/{mask_file}"
+                mask_url = f"{base_url}/uploads/{video_id}/{mask_dir}/{mask_file}"
                 objects[object_id]["masks"][frame_index] = mask_url
                 
                 print(f"Added mask for object {object_id}, frame {frame_index}: {mask_url}")
             else:
                 print(f"Warning: Could not parse mask filename: {mask_file}")
         except Exception as e:
-            print(f"Error processing mask file {mask_file}: {e}")
+            print(f"Error processing mask file {mask_file_path}: {e}")
     
     # Log what we're returning
     print(f"Returning {len(objects)} objects with masks")
+    for obj_id, obj_data in objects.items():
+        print(f"  {obj_id}: {len(obj_data['masks'])} masks")
     
     return {
         "video_id": video_id,

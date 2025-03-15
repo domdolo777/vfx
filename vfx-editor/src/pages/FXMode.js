@@ -206,7 +206,7 @@ const FXMode = () => {
       console.log('Loading frame', currentFrameIndex, 'from', fullUrl);
       
       const img = new Image();
-      img.crossOrigin = "anonymous";
+      img.crossOrigin = "anonymous"; // Critical for CORS handling
       img.src = fullUrl;
       
       img.onload = () => {
@@ -216,7 +216,11 @@ const FXMode = () => {
           const ctx = canvas.getContext('2d');
           canvas.width = img.width;
           canvas.height = img.height;
+          
+          // Clear the canvas first
           ctx.clearRect(0, 0, canvas.width, canvas.height);
+          
+          // Draw the base frame
           ctx.drawImage(img, 0, 0);
           
           // Debug log the objects
@@ -225,7 +229,7 @@ const FXMode = () => {
           // Draw masks and effects for the current frame
           if (objects && objects.length > 0) {
             objects.forEach((object, index) => {
-              console.log(`Checking object ${index}:`, object);
+              console.log(`Processing object ${index}:`, object);
               
               if (object.visible && object.masks && object.masks[currentFrameIndex]) {
                 const maskUrl = object.masks[currentFrameIndex];
@@ -236,26 +240,26 @@ const FXMode = () => {
                 console.log('Loading mask for object', index, 'from', fullMaskUrl);
                 
                 const maskImg = new Image();
-                maskImg.crossOrigin = "anonymous";
+                maskImg.crossOrigin = "anonymous"; // Critical for CORS handling
                 maskImg.src = fullMaskUrl;
                 
                 maskImg.onload = () => {
                   console.log('Mask loaded successfully:', fullMaskUrl);
                   
-                  // Create a temporary canvas to process the mask
+                  // Create a temporary canvas for the mask
                   const tempCanvas = document.createElement('canvas');
-                  tempCanvas.width = maskImg.width;
-                  tempCanvas.height = maskImg.height;
+                  tempCanvas.width = canvas.width;
+                  tempCanvas.height = canvas.height;
                   const tempCtx = tempCanvas.getContext('2d');
                   
                   // Draw the mask on the temporary canvas
-                  tempCtx.drawImage(maskImg, 0, 0);
+                  tempCtx.drawImage(maskImg, 0, 0, canvas.width, canvas.height);
                   
                   // Get the mask data
-                  const maskData = tempCtx.getImageData(0, 0, tempCanvas.width, tempCanvas.height);
+                  const maskData = tempCtx.getImageData(0, 0, canvas.width, canvas.height);
                   
                   // Create a colored version of the mask
-                  const coloredMaskData = tempCtx.createImageData(tempCanvas.width, tempCanvas.height);
+                  const coloredMaskData = new ImageData(canvas.width, canvas.height);
                   const objectColor = objectColors[index % objectColors.length];
                   
                   // Parse the hex color to RGB
@@ -265,7 +269,7 @@ const FXMode = () => {
                   
                   // Apply the color to the mask with the global opacity setting
                   for (let i = 0; i < maskData.data.length; i += 4) {
-                    if (maskData.data[i] > 0) { // If there's any value in the mask
+                    if (maskData.data[i] > 0 || maskData.data[i+1] > 0 || maskData.data[i+2] > 0) {
                       coloredMaskData.data[i] = r;     // R
                       coloredMaskData.data[i + 1] = g; // G
                       coloredMaskData.data[i + 2] = b; // B
@@ -278,13 +282,14 @@ const FXMode = () => {
                   
                   // Draw the colored mask on the main canvas
                   ctx.save();
+                  ctx.globalCompositeOperation = 'source-over';
                   ctx.drawImage(tempCanvas, 0, 0);
                   ctx.restore();
                   
                   // If this object has effects, draw them
                   if (object.effects) {
                     Object.entries(object.effects).forEach(([effectType, effectFrames]) => {
-                      if (effectFrames[currentFrameIndex]) {
+                      if (effectFrames && effectFrames[currentFrameIndex]) {
                         const effectUrl = effectFrames[currentFrameIndex];
                         const fullEffectUrl = effectUrl.startsWith('http') 
                           ? effectUrl 
@@ -293,11 +298,12 @@ const FXMode = () => {
                         console.log('Loading effect', effectType, 'from', fullEffectUrl);
                         
                         const effectImg = new Image();
-                        effectImg.crossOrigin = "anonymous";
+                        effectImg.crossOrigin = "anonymous"; // Critical for CORS handling
                         effectImg.src = fullEffectUrl;
                         
                         effectImg.onload = () => {
                           console.log('Effect loaded successfully:', fullEffectUrl);
+                          
                           // Apply the effect with proper opacity
                           ctx.save();
                           
@@ -313,7 +319,10 @@ const FXMode = () => {
                             ctx.globalCompositeOperation = 'destination-out';
                             ctx.drawImage(maskImg, 0, 0);
                           } else {
-                            // Normal mode: just draw the effect
+                            // Use the mask as a clipping path
+                            ctx.globalCompositeOperation = 'source-atop';
+                            ctx.drawImage(maskImg, 0, 0);
+                            ctx.globalCompositeOperation = 'source-over';
                             ctx.drawImage(effectImg, 0, 0);
                           }
                           
