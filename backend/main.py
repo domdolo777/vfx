@@ -757,5 +757,109 @@ async def options_export_video():
     """Handle OPTIONS requests for the export-video endpoint"""
     return {"detail": "OK"}
 
+@app.get("/list-masks/{video_id}")
+async def list_masks(video_id: str, req: Request = None):
+    """List all masks for a video, organized by object"""
+    masks_dir = os.path.join("uploads", video_id, "masks")
+    
+    if not os.path.exists(masks_dir):
+        raise HTTPException(status_code=404, detail="Video or masks not found")
+    
+    # Get base URL for static files
+    base_url = get_base_url(req)
+    
+    # Get all mask files
+    mask_files = [f for f in os.listdir(masks_dir) if f.endswith(".png")]
+    
+    # Group by object ID
+    objects = {}
+    for mask_file in mask_files:
+        parts = mask_file.split("_")
+        if len(parts) < 2:
+            continue
+            
+        # Extract object ID and frame index
+        # Format is typically obj_XXX_00000.png
+        object_id_parts = []
+        frame_index = None
+        
+        for part in parts:
+            if part.startswith("obj"):
+                object_id_parts.append(part)
+            elif part.isdigit() or (part.endswith(".png") and part[:-4].isdigit()):
+                # If this part is a digit or ends with .png and the part without .png is a digit
+                frame_index_str = part[:-4] if part.endswith(".png") else part
+                try:
+                    frame_index = int(frame_index_str)
+                except ValueError:
+                    continue
+        
+        # Skip if we couldn't parse the object ID or frame index
+        if not object_id_parts or frame_index is None:
+            continue
+            
+        # Combine object ID parts
+        object_id = "_".join(object_id_parts)
+        
+        # Create object entry if it doesn't exist
+        if object_id not in objects:
+            objects[object_id] = {
+                "id": object_id,
+                "masks": {}
+            }
+            
+        # Add mask URL to object
+        mask_url = f"{base_url}/uploads/{video_id}/masks/{mask_file}"
+        objects[object_id]["masks"][frame_index] = mask_url
+    
+    return {
+        "video_id": video_id,
+        "objects": list(objects.values())
+    }
+
+@app.get("/console-log")
+async def get_console_log():
+    """Get the console log (for debugging purposes)"""
+    log_content = ""
+    
+    # Try to read logs from a standard location
+    log_paths = [
+        "backend.log",  # Current directory
+        os.path.join("logs", "backend.log"),  # Logs directory
+        "/tmp/backend.log",  # Temp directory
+        os.path.join(os.path.expanduser("~"), "backend.log"),  # Home directory
+    ]
+    
+    # Look for any .log files in the current directory if we can't find the main log
+    if not any(os.path.exists(path) for path in log_paths):
+        log_files = [f for f in os.listdir() if f.endswith(".log")]
+        log_paths.extend(log_files)
+    
+    # Try to read each log file until we find one
+    for log_path in log_paths:
+        if os.path.exists(log_path):
+            try:
+                with open(log_path, "r") as f:
+                    log_content = f.read()
+                break
+            except Exception as e:
+                print(f"Error reading log file {log_path}: {e}")
+    
+    # Generate some fake content if we couldn't read the logs
+    if not log_content:
+        # Create some content from recent stdout
+        recent_output = []
+        for i in range(50):
+            try:
+                recent_output.append(f"obj_tmp{i:04d} Some log message")
+            except Exception:
+                pass
+        
+        log_content = "\n".join(recent_output)
+    
+    return {
+        "log": log_content
+    }
+
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 

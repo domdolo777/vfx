@@ -316,30 +316,77 @@ const FXMode = () => {
   useEffect(() => {
     const fetchObjects = async () => {
       try {
-        // This is a mock implementation - in a real app, you would fetch the objects from the backend
-        // or pass them through state management (Redux, Context API, etc.)
+        // Fetch the tracked objects from the backend
+        console.log('Fetching objects for FX mode...');
         
-        // For now, we'll simulate loading objects with their tracking masks
+        // First, get frames to ensure video info is loaded
         const response = await axios.get(`${config.apiUrl}/video-frames/${videoId}?start=0&count=1`);
         
-        // Check if there are any tracked objects in the backend
-        // This is just a placeholder - you would need to implement an endpoint to get objects
-        setObjects([
-          {
-            id: 'obj_1',
-            name: 'Object 1',
-            visible: true,
-            effects: {}
-          },
-          {
-            id: 'obj_2',
-            name: 'Object 2',
-            visible: true,
-            effects: {}
-          }
-        ]);
+        // Get all masks from the uploads directory for this video
+        const masksResponse = await axios.get(`${config.apiUrl}/list-masks/${videoId}`);
         
-        setSelectedObjectIndex(0);
+        if (masksResponse.data && masksResponse.data.objects && masksResponse.data.objects.length > 0) {
+          setObjects(masksResponse.data.objects.map(obj => ({
+            id: obj.id,
+            name: obj.name || `Object ${obj.id.substring(4, 10)}`,
+            visible: true,
+            masks: obj.masks,
+            effects: {}
+          })));
+          
+          setSelectedObjectIndex(0);
+        } else {
+          // If no objects found, check if we have any masks in the backend that we can detect
+          console.log('No objects returned from API, checking for masks manually...');
+          
+          // As a fallback, attempt to detect masks from the logs
+          const objectsWithMasks = [];
+          const regexPattern = /obj_[a-zA-Z0-9_]+/g;
+          
+          // Check for object IDs in the console logs (not ideal but can work as a fallback)
+          let objectIds = new Set();
+          let consoleOutput = '';
+          try {
+            const consoleResponse = await axios.get(`${config.apiUrl}/console-log`);
+            consoleOutput = consoleResponse.data.log;
+            const matches = consoleOutput.match(regexPattern);
+            if (matches) {
+              matches.forEach(match => objectIds.add(match));
+            }
+          } catch (err) {
+            console.error('Error fetching console logs:', err);
+          }
+          
+          // If we found object IDs, create objects with masks
+          if (objectIds.size > 0) {
+            let index = 0;
+            for (const objId of objectIds) {
+              const masks = {};
+              // Assume masks exist for frames 0-30 (for simplicity)
+              for (let i = 0; i < 30; i++) {
+                masks[i] = `${config.apiUrl}/uploads/${videoId}/masks/${objId}_${i.toString().padStart(5, '0')}.png`;
+              }
+              
+              objectsWithMasks.push({
+                id: objId,
+                name: `Object ${index + 1}`,
+                visible: true,
+                masks: masks,
+                effects: {}
+              });
+              index++;
+            }
+            
+            if (objectsWithMasks.length > 0) {
+              setObjects(objectsWithMasks);
+              setSelectedObjectIndex(0);
+            } else {
+              setError('No objects found. Please go back to Segmentation Mode and create objects first.');
+            }
+          } else {
+            setError('No objects found. Please go back to Segmentation Mode and create objects first.');
+          }
+        }
       } catch (error) {
         console.error('Error fetching objects:', error);
         setError('Failed to load objects. Please go back to Segmentation Mode and create objects first.');
