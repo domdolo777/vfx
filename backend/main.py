@@ -22,8 +22,10 @@ app.add_middleware(
     CORSMiddleware,
     allow_origins=["*"],  # Allow all origins for testing
     allow_credentials=True,
-    allow_methods=["*"],
+    allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS"],
     allow_headers=["*"],
+    expose_headers=["*"],
+    max_age=86400,  # Cache preflight requests for 24 hours
 )
 
 # Create directories for uploads and results
@@ -723,6 +725,26 @@ async def get_mask(video_id: str, mask_file: str):
 async def health_check():
     """Simple endpoint to check if the API is running"""
     return {"status": "ok", "message": "API is running"}
+
+@app.options("/track")
+async def options_track():
+    """Handle OPTIONS requests for the track endpoint"""
+    return {"detail": "OK"}
+
+@app.options("/segment")
+async def options_segment():
+    """Handle OPTIONS requests for the segment endpoint"""
+    return {"detail": "OK"}
+
+@app.options("/apply-effect")
+async def options_apply_effect():
+    """Handle OPTIONS requests for the apply-effect endpoint"""
+    return {"detail": "OK"}
+
+@app.options("/export-video")
+async def options_export_video():
+    """Handle OPTIONS requests for the export-video endpoint"""
+    return {"detail": "OK"}
 
 if __name__ == "__main__":
     uvicorn.run("main:app", host="0.0.0.0", port=8000, reload=True) 
